@@ -77,7 +77,33 @@ The plugin registers the following custom commands that can be mapped to the Hon
 
 ## Configuration
 
-Map the Honeycomb Bravo's rotary encoder and buttons to the custom commands in X-Plane's joystick settings.
+### LED Mappings
+
+The plugin supports custom LED-to-dataref mappings via a configuration file. On first run, the plugin will create a default configuration file at:
+
+```
+X-Plane 12/Output/preferences/XHoneycombBravo.cfg
+```
+
+You can edit this TOML file to customize which datarefs control which LEDs. For example:
+
+```toml
+[autopilot]
+hdg = "sim/cockpit2/autopilot/heading_mode"
+nav = "sim/cockpit2/autopilot/nav_status"
+# ... customize other autopilot datarefs
+
+[annunciators]
+master_warning = "sim/cockpit2/annunciators/master_warning"
+engine_fire = "sim/cockpit2/annunciators/engine_fires"
+# ... customize annunciator datarefs
+```
+
+Changes to the configuration file require restarting X-Plane or reloading the plugin.
+
+### Joystick Mapping
+
+Map the Honeycomb Bravo's rotary encoder and buttons to the custom commands in X-Plane's joystick settings (Settings > Joystick > Buttons: Advanced).
 
 ## License
 
