@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: MIT
 
+mod commands;
 mod config;
 mod datarefs;
 mod hid;
@@ -61,6 +62,9 @@ impl Plugin for HoneycombBravoPlugin {
         unsafe {
             DATAREFS = Some(datarefs);
         }
+
+        // Register custom commands
+        commands::register_commands();
 
         debugln!("HoneycombBravo | Plugin started successfully");
 
