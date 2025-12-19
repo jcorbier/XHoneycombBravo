@@ -1,0 +1,101 @@
+// Copyright (c) 2025 Jeremie Corbier
+// SPDX-License-Identifier: MIT
+
+mod datarefs;
+mod hid;
+mod leds;
+
+use datarefs::DataRefs;
+use std::fmt;
+use xplm::debugln;
+use xplm::flight_loop::{FlightLoop, LoopState};
+use xplm::plugin::{Plugin, PluginInfo};
+use xplm::xplane_plugin;
+
+// We need unsafe static for datarefs because FlightLoop callbacks can't access plugin state
+// This is safe because X-Plane is single-threaded for plugin callbacks
+static mut DATAREFS: Option<DataRefs> = None;
+
+// Error type that implements std::error::Error
+#[derive(Debug)]
+struct PluginError(String);
+
+impl fmt::Display for PluginError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for PluginError {}
+
+impl From<String> for PluginError {
+    fn from(s: String) -> Self {
+        PluginError(s)
+    }
+}
+
+impl From<&str> for PluginError {
+    fn from(s: &str) -> Self {
+        PluginError(s.to_string())
+    }
+}
+
+struct HoneycombBravoPlugin {
+    flight_loop: Option<FlightLoop>,
+}
+
+impl Plugin for HoneycombBravoPlugin {
+    type Error = PluginError;
+
+    fn start() -> Result<Self, Self::Error> {
+        debugln!("HoneycombBravo | Plugin starting...");
+
+        // Initialize datarefs
+        let datarefs =
+            DataRefs::new().map_err(|e| format!("Failed to initialize datarefs: {:?}", e))?;
+
+        unsafe {
+            DATAREFS = Some(datarefs);
+        }
+
+        debugln!("HoneycombBravo | Plugin started successfully");
+
+        Ok(HoneycombBravoPlugin { flight_loop: None })
+    }
+
+    fn enable(&mut self) -> Result<(), Self::Error> {
+        debugln!("HoneycombBravo | Plugin enabled");
+
+        // Create flight loop for LED updates
+        let mut flight_loop = FlightLoop::new(|_state: &mut LoopState| unsafe {
+            if let Some(ref datarefs) = DATAREFS {
+                leds::handle_led_changes(datarefs);
+            }
+        });
+
+        flight_loop.schedule_immediate();
+        self.flight_loop = Some(flight_loop);
+
+        Ok(())
+    }
+
+    fn disable(&mut self) {
+        debugln!("HoneycombBravo | Plugin disabled");
+        self.flight_loop = None;
+
+        // Turn off all LEDs
+        let mut device = hid::get_device().lock().unwrap();
+        device.all_leds_off();
+        device.send_hid_data();
+    }
+
+    fn info(&self) -> PluginInfo {
+        PluginInfo {
+            name: "HoneycombBravo".into(),
+            signature: "com.jcorbier.honeycombbravo".into(),
+            description: "Honeycomb Bravo throttle quadrant LED control for X-Plane 12".into(),
+        }
+    }
+}
+
+xplane_plugin!(HoneycombBravoPlugin);
