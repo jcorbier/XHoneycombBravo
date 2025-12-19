@@ -1,10 +1,12 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: MIT
 
+mod config;
 mod datarefs;
 mod hid;
 mod leds;
 
+use config::load_config;
 use datarefs::DataRefs;
 use std::fmt;
 use xplm::debugln;
@@ -50,9 +52,11 @@ impl Plugin for HoneycombBravoPlugin {
     fn start() -> Result<Self, Self::Error> {
         debugln!("HoneycombBravo | Plugin starting...");
 
-        // Initialize datarefs
-        let datarefs =
-            DataRefs::new().map_err(|e| format!("Failed to initialize datarefs: {:?}", e))?;
+        // Load configuration
+        let config = load_config();
+
+        // Initialize datarefs from configuration
+        let datarefs = DataRefs::new(&config);
 
         unsafe {
             DATAREFS = Some(datarefs);
