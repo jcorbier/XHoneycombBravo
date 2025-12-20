@@ -25,34 +25,27 @@ A native X-Plane 12 plugin written in Rust that controls the Honeycomb Bravo thr
 - Honeycomb Bravo Throttle Quadrant
 - hidapi library (install via Homebrew: `brew install hidapi`)
 
-## Building from Source
-
-1. Install Rust from [rustup.rs](https://rustup.rs/)
-2. Install hidapi:
-   ```bash
-   brew install hidapi
-   ```
-3. Clone this repository and build:
-   ```bash
-   cd /Users/jcorbier/Code/XHoneycombBravo
-   cargo build --release
-   ```
-4. The compiled plugin will be at `target/release/libhoneycomb_bravo_xplane.dylib`
-
 ## Installation
 
-1. Build the plugin (see above)
-2. Create the plugin directory structure in X-Plane:
+1. Download the latest release `XHoneycombBravo-vX.Y.Z.zip` from the [Releases page](../../releases).
+2. Unzip the file. You will get a folder named `XHoneycombBravo`.
+3. Copy the `XHoneycombBravo` folder to your X-Plane plugins directory:
    ```
-   X-Plane 12/Resources/plugins/HoneycombBravo/mac_x64/
+   X-Plane 12/Resources/plugins/
    ```
-3. Copy the compiled `.dylib` file to the `mac_x64` directory
-4. Rename it to `mac.xpl`:
+
+### Important: Security Quarantine
+
+Since this plugin is not yet notarized by Apple, macOS will block it from running by default. To allow it:
+
+1. Open a terminal.
+2. Run the following command to remove the quarantine attribute from the plugin:
    ```bash
-   cp target/release/libhoneycomb_bravo_xplane.dylib \
-      "~/X-Plane 12/Resources/plugins/HoneycombBravo/mac_x64/mac.xpl"
+   xattr -cr "~/X-Plane 12/Resources/plugins/XHoneycombBravo"
    ```
-5. Restart X-Plane 12
+   (Adjust the path if your X-Plane installation is in a different location)
+
+Alternatively, you can try opening the plugin file manually via Finder (Right-click > Open) to trigger the security exception dialogue, but the `xattr` method is more reliable.
 
 ## Custom Commands
 
@@ -104,6 +97,35 @@ Changes to the configuration file require restarting X-Plane or reloading the pl
 ### Joystick Mapping
 
 Map the Honeycomb Bravo's rotary encoder and buttons to the custom commands in X-Plane's joystick settings (Settings > Joystick > Buttons: Advanced).
+
+## Building from Source
+
+1. Install Rust from [rustup.rs](https://rustup.rs/)
+2. Install hidapi:
+   ```bash
+   brew install hidapi
+   ```
+3. Clone this repository and build:
+   ```bash
+   cd /Users/jcorbier/Code/XHoneycombBravo
+   cargo build --release
+   ```
+4. The compiled plugin will be at `target/release/libhoneycomb_bravo_xplane.dylib`
+
+### Installing from Source
+
+1. Build the plugin (see above)
+2. Create the plugin directory structure in X-Plane:
+   ```
+   X-Plane 12/Resources/plugins/HoneycombBravo/mac_x64/
+   ```
+3. Copy the compiled `.dylib` file to the `mac_x64` directory
+4. Rename it to `mac.xpl`:
+   ```bash
+   cp target/release/libhoneycomb_bravo_xplane.dylib \
+      "~/X-Plane 12/Resources/plugins/HoneycombBravo/mac_x64/mac.xpl"
+   ```
+5. Restart X-Plane 12
 
 ## License
 
