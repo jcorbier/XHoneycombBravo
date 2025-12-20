@@ -107,7 +107,7 @@ Map the Honeycomb Bravo's rotary encoder and buttons to the custom commands in X
 
 ## License
 
-MIT License - see LICENSE file for details
+GPLv3 License - see LICENSE file for details
 
 ## Credits
 

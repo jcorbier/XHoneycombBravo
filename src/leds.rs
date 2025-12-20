@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Jeremie Corbier
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::datarefs::{array_has_true, float_to_bool, get_ap_state, int_to_bool, DataRefs};
 use crate::hid::*;

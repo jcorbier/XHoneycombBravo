@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Jeremie Corbier
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 use serde::{Deserialize, Serialize};
 use std::fs;

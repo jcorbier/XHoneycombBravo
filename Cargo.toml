@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Jeremie Corbier"]
 description = "X-Plane 12 plugin for Honeycomb Bravo throttle quadrant LED control"
-license = "MIT"
+license = "GPL-3.0"
 
 [lib]
 crate-type = ["cdylib"]
