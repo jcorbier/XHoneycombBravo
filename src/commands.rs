@@ -15,17 +15,17 @@ use xplm_sys::{
 /// Autopilot mode for rotary encoder
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AutopilotMode {
-    IAS,
-    CRS,
-    HDG,
+    Ias,
+    Crs,
+    Hdg,
     VS,
-    ALT,
+    Alt,
     COM1Coarse,
     COM1Fine,
 }
 
 /// Global mode state
-static CURRENT_MODE: Lazy<Mutex<AutopilotMode>> = Lazy::new(|| Mutex::new(AutopilotMode::IAS));
+static CURRENT_MODE: Lazy<Mutex<AutopilotMode>> = Lazy::new(|| Mutex::new(AutopilotMode::Ias));
 
 /// Writable datarefs for command system (using raw XPLMDataRef pointers)
 pub struct CommandDataRefs {
@@ -112,7 +112,7 @@ pub fn change_value(increase: bool) {
 
     unsafe {
         match mode {
-            AutopilotMode::IAS => {
+            AutopilotMode::Ias => {
                 if datarefs.airspeed_is_mach.is_null() || datarefs.airspeed.is_null() {
                     return;
                 }
@@ -131,7 +131,7 @@ pub fn change_value(increase: bool) {
                     XPLMSetDataf(datarefs.airspeed, new_val.max(0.0));
                 }
             }
-            AutopilotMode::CRS => {
+            AutopilotMode::Crs => {
                 if datarefs.course.is_null() {
                     return;
                 }
@@ -144,7 +144,7 @@ pub fn change_value(increase: bool) {
                 }
                 XPLMSetDataf(datarefs.course, new_val);
             }
-            AutopilotMode::HDG => {
+            AutopilotMode::Hdg => {
                 if datarefs.heading.is_null() {
                     return;
                 }
@@ -165,7 +165,7 @@ pub fn change_value(increase: bool) {
                 let new_val = ((current / 100.0).floor() + sign) * 100.0;
                 XPLMSetDataf(datarefs.vs_dial, new_val);
             }
-            AutopilotMode::ALT => {
+            AutopilotMode::Alt => {
                 if datarefs.altitude.is_null() {
                     return;
                 }
@@ -222,8 +222,8 @@ pub fn set_reverser_state(engine: Option<usize>, state: bool) {
                 reversers_vals[eng] = prop_mode;
             }
             None => {
-                for i in 0..count.min(8) as usize {
-                    reversers_vals[i] = prop_mode;
+                for val in reversers_vals.iter_mut().take(count.min(8) as usize) {
+                    *val = prop_mode;
                 }
             }
             _ => return,
@@ -242,11 +242,11 @@ unsafe extern "C" fn mode_command_handler(
     if phase == xplm_CommandBegin as XPLMCommandPhase {
         let mode = refcon as usize;
         let autopilot_mode = match mode {
-            0 => AutopilotMode::IAS,
-            1 => AutopilotMode::CRS,
-            2 => AutopilotMode::HDG,
+            0 => AutopilotMode::Ias,
+            1 => AutopilotMode::Crs,
+            2 => AutopilotMode::Hdg,
             3 => AutopilotMode::VS,
-            4 => AutopilotMode::ALT,
+            4 => AutopilotMode::Alt,
             5 => AutopilotMode::COM1Coarse,
             6 => AutopilotMode::COM1Fine,
             _ => return 0,
@@ -281,7 +281,7 @@ unsafe extern "C" fn reverser_handler(
 
     if engine == -1 {
         set_reverser_state(None, state);
-    } else if engine >= 0 && engine < 8 {
+    } else if (0..8).contains(&engine) {
         set_reverser_state(Some(engine as usize), state);
     }
 
@@ -328,7 +328,12 @@ pub fn register_commands() {
         )
         .unwrap();
         let cmd = XPLMCreateCommand(increase_cmd.as_ptr(), increase_desc.as_ptr());
-        XPLMRegisterCommandHandler(cmd, Some(value_change_handler), 1, 1 as *mut c_void);
+        XPLMRegisterCommandHandler(
+            cmd,
+            Some(value_change_handler),
+            1,
+            std::ptr::dangling_mut::<c_void>(),
+        );
 
         let decrease_cmd = CString::new("HoneycombBravo/decrease").unwrap();
         let decrease_desc = CString::new(
@@ -336,7 +341,12 @@ pub fn register_commands() {
         )
         .unwrap();
         let cmd = XPLMCreateCommand(decrease_cmd.as_ptr(), decrease_desc.as_ptr());
-        XPLMRegisterCommandHandler(cmd, Some(value_change_handler), 1, 0 as *mut c_void);
+        XPLMRegisterCommandHandler(
+            cmd,
+            Some(value_change_handler),
+            1,
+            std::ptr::null_mut::<c_void>(),
+        );
 
         // Thrust reverser commands
         let all_reversers_cmd = CString::new("HoneycombBravo/thrust_reversers").unwrap();
