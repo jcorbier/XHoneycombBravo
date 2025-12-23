@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-23
+
 ### Added
 - Hotplug support: The plugin now detects if the Honeycomb Bravo is connected after the plugin has started.
 - Hybrid device detection: Uses `libusb` (via `rusb`) for immediate hotplug events where available, with a fallback to polling.
@@ -28,5 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration file support (`XHoneycombBravo.cfg`) in X-Plane preferences.
 - macOS native binary generation (Universal `x86_64` and `arm64`).
 
-[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.1.0
