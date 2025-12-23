@@ -9,9 +9,7 @@ use xplm::data::{ArrayRead, DataRead};
 pub fn handle_led_changes(datarefs: &DataRefs) {
     let mut device = get_device().lock().unwrap();
 
-    if !device.try_connect() {
-        return;
-    }
+    device.tick();
 
     // Read bus voltage to determine if LEDs should be on
     let bus_voltage_on = datarefs

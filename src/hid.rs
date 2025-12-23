@@ -3,7 +3,9 @@
 
 use crate::xdebug;
 use hidapi::{HidApi, HidDevice};
-use std::sync::Mutex;
+use rusb::{Context, Hotplug, HotplugBuilder, Registration, UsbContext};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // Honeycomb Bravo USB identifiers
@@ -52,20 +54,118 @@ pub struct BravoDevice {
     buffer_modified: bool,
     master_state: bool,
     last_attempt: Option<Instant>,
+    // rusb / hotplug fields
+    rusb_context: Option<Context>,
+    #[allow(dead_code)] // Kept alive by scope, used for drop side-effects mainly
+    hotplug_registration: Option<Registration<Context>>,
+    connect_req: Arc<AtomicBool>,
+    disconnect_req: Arc<AtomicBool>,
+    has_hotplug: bool,
+}
+
+struct HotplugCallback {
+    connect_req: Arc<AtomicBool>,
+    disconnect_req: Arc<AtomicBool>,
+}
+
+impl Hotplug<Context> for HotplugCallback {
+    fn device_arrived(&mut self, _device: rusb::Device<Context>) {
+        xdebug!("Hotplug: Device arrived event");
+        self.connect_req.store(true, Ordering::SeqCst);
+    }
+
+    fn device_left(&mut self, _device: rusb::Device<Context>) {
+        xdebug!("Hotplug: Device left event");
+        self.disconnect_req.store(true, Ordering::SeqCst);
+    }
 }
 
 impl BravoDevice {
     pub fn new() -> Self {
+        let connect_req = Arc::new(AtomicBool::new(false));
+        let disconnect_req = Arc::new(AtomicBool::new(false));
+        let mut has_hotplug = false;
+        let mut rusb_context = None;
+        let mut hotplug_registration = None;
+
+        // Initialize rusb hotplug if available
+        if rusb::has_hotplug() {
+            match Context::new() {
+                Ok(ctx) => {
+                    xdebug!("libusb context initialized");
+                    let callback = HotplugCallback {
+                        connect_req: connect_req.clone(),
+                        disconnect_req: disconnect_req.clone(),
+                    };
+
+                    match HotplugBuilder::new()
+                        .vendor_id(VENDOR_ID)
+                        .product_id(PRODUCT_ID)
+                        .register(&ctx, Box::new(callback))
+                    {
+                        Ok(reg) => {
+                            xdebug!("Hotplug callback registered");
+                            hotplug_registration = Some(reg);
+                            has_hotplug = true;
+                            rusb_context = Some(ctx);
+                        }
+                        Err(e) => {
+                            xdebug!("Failed to register hotplug callback: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    xdebug!("Failed to initialize libusb context: {}", e);
+                }
+            }
+        } else {
+            xdebug!("Hotplug not supported by libusb on this platform");
+        }
+
         let mut bravo = BravoDevice {
             device: None,
             buffer: [[false; 9]; 5],
             buffer_modified: false,
             master_state: false,
             last_attempt: None,
+            rusb_context,
+            hotplug_registration,
+            connect_req,
+            disconnect_req,
+            has_hotplug,
         };
 
+        // If hotplug is active, we rely on it.
+        // But we should do an initial check or just let try_connect handle it?
+        // Let's do an initial try_connect regardless.
         bravo.try_connect();
         bravo
+    }
+
+    /// Periodic update method
+    pub fn tick(&mut self) {
+        if self.has_hotplug {
+            if let Some(ref ctx) = self.rusb_context {
+                // Poll for hotplug events
+                if let Err(e) = ctx.handle_events(Some(Duration::from_millis(0))) {
+                    xdebug!("Error handling libusb events: {}", e);
+                }
+            }
+
+            // Check flags
+            if self.disconnect_req.swap(false, Ordering::SeqCst) {
+                self.disconnect();
+            }
+
+            if self.connect_req.swap(false, Ordering::SeqCst) {
+                self.try_connect();
+            }
+        } else {
+            // Polling fallback
+            if self.device.is_none() {
+                self.try_connect();
+            }
+        }
     }
 
     pub fn try_connect(&mut self) -> bool {
@@ -105,6 +205,14 @@ impl BravoDevice {
                 );
                 false
             }
+        }
+    }
+
+    pub fn disconnect(&mut self) {
+        if self.device.is_some() {
+            xdebug!("Device disconnected");
+            self.device = None;
+            self.last_attempt = None;
         }
     }
 
@@ -159,6 +267,7 @@ impl BravoDevice {
             }
             Err(e) => {
                 xdebug!("Error: Feature report write failed: {}", e);
+                self.disconnect();
             }
         }
     }
