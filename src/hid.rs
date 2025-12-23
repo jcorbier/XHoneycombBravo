@@ -3,6 +3,7 @@
 
 use hidapi::{HidApi, HidDevice};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use xplm::debugln;
 
 // Honeycomb Bravo USB identifiers
@@ -50,20 +51,42 @@ pub struct BravoDevice {
     buffer: LedBuffer,
     buffer_modified: bool,
     master_state: bool,
+    last_attempt: Option<Instant>,
 }
 
 impl BravoDevice {
     pub fn new() -> Self {
+        let mut bravo = BravoDevice {
+            device: None,
+            buffer: [[false; 9]; 5],
+            buffer_modified: false,
+            master_state: false,
+            last_attempt: None,
+        };
+
+        bravo.try_connect();
+        bravo
+    }
+
+    pub fn try_connect(&mut self) -> bool {
+        if self.device.is_some() {
+            return true;
+        }
+
+        let now = Instant::now();
+        if let Some(last) = self.last_attempt {
+            if now.duration_since(last) < Duration::from_secs(3) {
+                return false;
+            }
+        }
+
+        self.last_attempt = Some(now);
+
         let api = match HidApi::new() {
             Ok(api) => api,
             Err(e) => {
                 debugln!("HoneycombBravo | Failed to initialize HID API: {}", e);
-                return BravoDevice {
-                    device: None,
-                    buffer: [[false; 9]; 5],
-                    buffer_modified: false,
-                    master_state: false,
-                };
+                return false;
             }
         };
 
@@ -72,30 +95,19 @@ impl BravoDevice {
                 debugln!(
                     "HoneycombBravo | Successfully connected to Honeycomb Bravo throttle quadrant"
                 );
-                let mut bravo = BravoDevice {
-                    device: Some(device),
-                    buffer: [[false; 9]; 5],
-                    buffer_modified: false,
-                    master_state: false,
-                };
-                bravo.all_leds_off();
-                bravo.send_hid_data();
-                bravo
+                self.device = Some(device);
+                self.all_leds_off();
+                self.send_hid_data();
+                true
             }
             Err(e) => {
-                debugln!("HoneycombBravo | Error: Unable to connect to the Honeycomb Bravo throttle quadrant: {}", e);
-                BravoDevice {
-                    device: None,
-                    buffer: [[false; 9]; 5],
-                    buffer_modified: false,
-                    master_state: false,
-                }
+                debugln!(
+                    "HoneycombBravo | Error: Unable to connect to the Honeycomb Bravo throttle quadrant: {}",
+                    e
+                );
+                false
             }
         }
-    }
-
-    pub fn is_connected(&self) -> bool {
-        self.device.is_some()
     }
 
     pub fn get_led(&self, led: (usize, usize)) -> bool {

@@ -9,7 +9,7 @@ use xplm::data::{ArrayRead, DataRead};
 pub fn handle_led_changes(datarefs: &DataRefs) {
     let mut device = get_device().lock().unwrap();
 
-    if !device.is_connected() {
+    if !device.try_connect() {
         return;
     }
 
