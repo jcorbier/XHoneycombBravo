@@ -1,10 +1,10 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::xdebug;
 use hidapi::{HidApi, HidDevice};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use xplm::debugln;
 
 // Honeycomb Bravo USB identifiers
 const VENDOR_ID: u16 = 10571;
@@ -85,24 +85,22 @@ impl BravoDevice {
         let api = match HidApi::new() {
             Ok(api) => api,
             Err(e) => {
-                debugln!("HoneycombBravo | Failed to initialize HID API: {}", e);
+                xdebug!("Failed to initialize HID API: {}", e);
                 return false;
             }
         };
 
         match api.open(VENDOR_ID, PRODUCT_ID) {
             Ok(device) => {
-                debugln!(
-                    "HoneycombBravo | Successfully connected to Honeycomb Bravo throttle quadrant"
-                );
+                xdebug!("Successfully connected to Honeycomb Bravo throttle quadrant");
                 self.device = Some(device);
                 self.all_leds_off();
                 self.send_hid_data();
                 true
             }
             Err(e) => {
-                debugln!(
-                    "HoneycombBravo | Error: Unable to connect to the Honeycomb Bravo throttle quadrant: {}",
+                xdebug!(
+                    "Error: Unable to connect to the Honeycomb Bravo throttle quadrant: {}",
                     e
                 );
                 false
@@ -160,7 +158,7 @@ impl BravoDevice {
                 self.buffer_modified = false;
             }
             Err(e) => {
-                debugln!("HoneycombBravo | Error: Feature report write failed: {}", e);
+                xdebug!("Error: Feature report write failed: {}", e);
             }
         }
     }

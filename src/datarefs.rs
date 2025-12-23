@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::config::LedConfig;
+use crate::xdebug;
 use xplm::data::borrowed::DataRef;
 use xplm::data::ReadOnly;
-use xplm::debugln;
 
 /// Helper to check if an autopilot state is active (>= 1)
 pub fn get_ap_state(value: i32) -> bool {
@@ -68,7 +68,7 @@ pub struct DataRefs {
 
 impl DataRefs {
     pub fn new(config: &LedConfig) -> Self {
-        debugln!("HoneycombBravo | Loading datarefs from configuration...");
+        xdebug!("Loading datarefs from configuration...");
 
         DataRefs {
             bus_voltage: DataRef::find(&config.system.bus_voltage).ok(),

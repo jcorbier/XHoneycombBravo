@@ -1,11 +1,11 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::xdebug;
 use once_cell::sync::Lazy;
 use std::ffi::CString;
 use std::os::raw::{c_int, c_void};
 use std::sync::Mutex;
-use xplm::debugln;
 use xplm_sys::{
     xplm_CommandBegin, xplm_CommandContinue, XPLMCommandPhase, XPLMCommandRef, XPLMCreateCommand,
     XPLMDataRef, XPLMFindCommand, XPLMFindDataRef, XPLMGetDataf, XPLMGetDatavf,
@@ -96,7 +96,7 @@ pub fn get_current_mode() -> AutopilotMode {
 
 pub fn set_current_mode(mode: AutopilotMode) {
     *CURRENT_MODE.lock().unwrap() = mode;
-    debugln!("HoneycombBravo | Autopilot mode set to {:?}", mode);
+    xdebug!("Autopilot mode set to {:?}", mode);
 }
 
 /// Change autopilot value based on current mode
@@ -364,5 +364,5 @@ pub fn register_commands() {
         }
     }
 
-    debugln!("HoneycombBravo | Registered all custom commands");
+    xdebug!("Registered all custom commands");
 }

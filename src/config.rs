@@ -1,10 +1,10 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::xdebug;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use xplm::debugln;
 
 /// Configuration for LED to dataref mappings
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,36 +182,27 @@ pub fn load_config() -> LedConfig {
             path
         }
         None => {
-            debugln!("HoneycombBravo | Could not find X-Plane preferences directory, using default config");
+            xdebug!("Could not find X-Plane preferences directory, using default config");
             return LedConfig::default();
         }
     };
 
-    debugln!("HoneycombBravo | Config path: {:?}", config_path);
+    xdebug!("Config path: {:?}", config_path);
 
     // Try to load existing config
     if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(contents) => match toml::from_str::<LedConfig>(&contents) {
                 Ok(config) => {
-                    debugln!(
-                        "HoneycombBravo | Loaded configuration from {:?}",
-                        config_path
-                    );
+                    xdebug!("Loaded configuration from {:?}", config_path);
                     return config;
                 }
                 Err(e) => {
-                    debugln!(
-                        "HoneycombBravo | Error parsing config file: {}. Using defaults.",
-                        e
-                    );
+                    xdebug!("Error parsing config file: {}. Using defaults.", e);
                 }
             },
             Err(e) => {
-                debugln!(
-                    "HoneycombBravo | Error reading config file: {}. Using defaults.",
-                    e
-                );
+                xdebug!("Error reading config file: {}. Using defaults.", e);
             }
         }
     }
@@ -220,12 +211,9 @@ pub fn load_config() -> LedConfig {
     let default_config = LedConfig::default();
     if let Ok(toml_string) = toml::to_string_pretty(&default_config) {
         if let Err(e) = fs::write(&config_path, toml_string) {
-            debugln!("HoneycombBravo | Could not write default config: {}", e);
+            xdebug!("Could not write default config: {}", e);
         } else {
-            debugln!(
-                "HoneycombBravo | Created default configuration at {:?}",
-                config_path
-            );
+            xdebug!("Created default configuration at {:?}", config_path);
         }
     }
 

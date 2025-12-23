@@ -10,10 +10,18 @@ mod leds;
 use config::load_config;
 use datarefs::DataRefs;
 use std::fmt;
-use xplm::debugln;
+
 use xplm::flight_loop::{FlightLoop, LoopState};
 use xplm::plugin::{Plugin, PluginInfo};
+
 use xplm::xplane_plugin;
+
+#[macro_export]
+macro_rules! xdebug {
+    ($($arg:tt)*) => {
+        xplm::debugln!("XHoneycombBravo | {}", format!($($arg)*));
+    }
+}
 
 // We need unsafe static for datarefs because FlightLoop callbacks can't access plugin state
 // This is safe because X-Plane is single-threaded for plugin callbacks
@@ -51,7 +59,7 @@ impl Plugin for HoneycombBravoPlugin {
     type Error = PluginError;
 
     fn start() -> Result<Self, Self::Error> {
-        debugln!("HoneycombBravo | Plugin starting...");
+        xdebug!("Plugin starting...");
 
         // Load configuration
         let config = load_config();
@@ -66,13 +74,13 @@ impl Plugin for HoneycombBravoPlugin {
         // Register custom commands
         commands::register_commands();
 
-        debugln!("HoneycombBravo | Plugin started successfully");
+        xdebug!("Plugin started successfully");
 
         Ok(HoneycombBravoPlugin { flight_loop: None })
     }
 
     fn enable(&mut self) -> Result<(), Self::Error> {
-        debugln!("HoneycombBravo | Plugin enabled");
+        xdebug!("Plugin enabled");
 
         // Create flight loop for LED updates
         let mut flight_loop = FlightLoop::new(|_state: &mut LoopState| unsafe {
@@ -88,7 +96,7 @@ impl Plugin for HoneycombBravoPlugin {
     }
 
     fn disable(&mut self) {
-        debugln!("HoneycombBravo | Plugin disabled");
+        xdebug!("Plugin disabled");
         self.flight_loop = None;
 
         // Turn off all LEDs
