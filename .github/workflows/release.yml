@@ -43,6 +43,7 @@ jobs:
           mkdir -p release_artifact/XHoneycombBravo
           cp output/mac.xpl release_artifact/XHoneycombBravo/
           cp README.md release_artifact/XHoneycombBravo/
+          cp CHANGELOG.md release_artifact/XHoneycombBravo/
           cd release_artifact
           zip -r ../XHoneycombBravo-${TAG_NAME}.zip XHoneycombBravo
 
