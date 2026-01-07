@@ -44,9 +44,36 @@ jobs:
           cp output/mac.xpl release_artifact/XHoneycombBravo/
           cp README.md release_artifact/XHoneycombBravo/
           cp CHANGELOG.md release_artifact/XHoneycombBravo/
+          sed -i '' "s/@VERSION@/${TAG_NAME}/" skunkcrafts_updater.cfg
+          cp skunkcrafts_updater.cfg release_artifact/XHoneycombBravo/
           cd release_artifact
           zip -r ../XHoneycombBravo-${TAG_NAME}.zip XHoneycombBravo
 
+      - name: Create Skunkcrafts Updater package
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          unzip XHoneycombBravo-${TAG_NAME}.zip
+          mv XHoneycombBravo release
+
+          echo "" > release/skunkcrafts_updater_blacklist.txt
+
+          # create crc32 checksum for all values and write to skunkcrafts_updater_whitelist.txt
+          # format is <filename>|<crc32 checksum>
+          # include subdirectories
+          find release -type f ! \( -name '*skunkcrafts_updater*' -o -path '*skunkcrafts_updater*' \) -print0 | while IFS= read -r -d '' file; do
+            checksum_hex=$(crc32 "$file")
+            # Convert hex checksum to uint32 decimal
+            checksum_decimal=$((16#$checksum_hex))
+            # Remove "release/" prefix from $file
+            modified_file="${file#release/}"
+            echo "$modified_file|$checksum_decimal" >> release/skunkcrafts_updater_whitelist.txt
+          done
+
+          git checkout -b release
+          git add release
+          git commit -m "new release - ${TAG_NAME}"
+          git push -f -u origin release
+                    
       - name: Extract Release Notes
         id: extract_release_notes
         run: |
