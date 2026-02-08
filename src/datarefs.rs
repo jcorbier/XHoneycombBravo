@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::config::LedConfig;
+use crate::config::PluginConfig;
 use crate::xdebug;
 use xplm::data::borrowed::DataRef;
 use xplm::data::ReadOnly;
@@ -67,7 +67,7 @@ pub struct DataRefs {
 }
 
 impl DataRefs {
-    pub fn new(config: &LedConfig) -> Self {
+    pub fn new(config: &PluginConfig) -> Self {
         xdebug!("Loading datarefs from configuration...");
 
         DataRefs {

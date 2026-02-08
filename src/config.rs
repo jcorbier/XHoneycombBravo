@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-/// Configuration for LED to dataref mappings
+/// Plugin configuration: LED dataref mappings, system datarefs, and trim wheel
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LedConfig {
+pub struct PluginConfig {
     #[serde(default = "default_autopilot")]
     pub autopilot: AutopilotConfig,
 
@@ -20,6 +20,9 @@ pub struct LedConfig {
 
     #[serde(default = "default_system")]
     pub system: SystemConfig,
+
+    #[serde(default = "default_trim_wheel")]
+    pub trim_wheel: TrimWheelConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,13 +68,51 @@ pub struct SystemConfig {
     pub cabin_door: String,
 }
 
-impl Default for LedConfig {
+/// Trim wheel configuration
+///
+/// The trim wheel on the Honeycomb Bravo sends 24 detent commands per full 360°
+/// rotation. Each detent adjusts the elevator trim by:
+///   delta = (max_trim - min_trim) / detents_per_rotation / full_turns
+///
+/// For a Cessna 172 (10 turns, range -1.0 to 1.0): delta = 2.0 / 24 / 10 ≈ 0.00833 per detent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TrimWheelConfig {
+    /// Enable trim wheel custom commands
+    pub enabled: bool,
+    /// Dataref to write elevator trim to
+    pub elevator_trim_dataref: String,
+    /// Minimum trim value (max nose down)
+    pub min_trim: f32,
+    /// Maximum trim value (max nose up)
+    pub max_trim: f32,
+    /// Number of full turns of the physical trim wheel from max nose down to max nose up
+    pub full_turns: f32,
+    /// Number of detents the Bravo trim wheel sends per full 360° rotation
+    pub detents_per_rotation: f32,
+}
+
+impl Default for TrimWheelConfig {
     fn default() -> Self {
-        LedConfig {
+        TrimWheelConfig {
+            enabled: true,
+            elevator_trim_dataref: "sim/cockpit2/controls/elevator_trim".to_string(),
+            min_trim: -1.0,
+            max_trim: 1.0,
+            full_turns: 10.0,
+            detents_per_rotation: 24.0,
+        }
+    }
+}
+
+impl Default for PluginConfig {
+    fn default() -> Self {
+        PluginConfig {
             autopilot: default_autopilot(),
             landing_gear: default_landing_gear(),
             annunciators: default_annunciators(),
             system: default_system(),
+            trim_wheel: default_trim_wheel(),
         }
     }
 }
@@ -121,6 +162,10 @@ fn default_system() -> SystemConfig {
         doors: "sim/flightmodel2/misc/door_open_ratio".to_string(),
         cabin_door: "sim/cockpit2/annunciators/cabin_door_open".to_string(),
     }
+}
+
+fn default_trim_wheel() -> TrimWheelConfig {
+    TrimWheelConfig::default()
 }
 
 /// Get the path to the X-Plane preferences directory
@@ -175,7 +220,7 @@ fn get_preferences_path() -> Option<PathBuf> {
 }
 
 /// Load configuration from file, or create default if not found
-pub fn load_config() -> LedConfig {
+pub fn load_config() -> PluginConfig {
     let config_path = match get_preferences_path() {
         Some(mut path) => {
             path.push("XHoneycombBravo.cfg");
@@ -183,7 +228,7 @@ pub fn load_config() -> LedConfig {
         }
         None => {
             xdebug!("Could not find X-Plane preferences directory, using default config");
-            return LedConfig::default();
+            return PluginConfig::default();
         }
     };
 
@@ -192,7 +237,7 @@ pub fn load_config() -> LedConfig {
     // Try to load existing config
     if config_path.exists() {
         match fs::read_to_string(&config_path) {
-            Ok(contents) => match toml::from_str::<LedConfig>(&contents) {
+            Ok(contents) => match toml::from_str::<PluginConfig>(&contents) {
                 Ok(config) => {
                     xdebug!("Loaded configuration from {:?}", config_path);
                     return config;
@@ -208,7 +253,7 @@ pub fn load_config() -> LedConfig {
     }
 
     // Create default config file
-    let default_config = LedConfig::default();
+    let default_config = PluginConfig::default();
     if let Ok(toml_string) = toml::to_string_pretty(&default_config) {
         if let Err(e) = fs::write(&config_path, toml_string) {
             xdebug!("Could not write default config: {}", e);

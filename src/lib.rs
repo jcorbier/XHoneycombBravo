@@ -72,7 +72,7 @@ impl Plugin for HoneycombBravoPlugin {
         }
 
         // Register custom commands
-        commands::register_commands();
+        commands::register_commands(&config);
 
         xdebug!("Plugin started successfully");
 
@@ -82,7 +82,7 @@ impl Plugin for HoneycombBravoPlugin {
     fn enable(&mut self) -> Result<(), Self::Error> {
         xdebug!("Plugin enabled");
 
-        // Create flight loop for LED updates
+        // Create flight loop for periodic updates (LEDs, HID device polling)
         let mut flight_loop = FlightLoop::new(|_state: &mut LoopState| unsafe {
             if let Some(ref datarefs) = DATAREFS {
                 leds::handle_led_changes(datarefs);
@@ -109,7 +109,7 @@ impl Plugin for HoneycombBravoPlugin {
         PluginInfo {
             name: "HoneycombBravo".into(),
             signature: "com.jcorbier.honeycombbravo".into(),
-            description: "Honeycomb Bravo throttle quadrant LED control for X-Plane 12".into(),
+            description: "Honeycomb Bravo throttle quadrant plugin for X-Plane 12 (LEDs, rotary encoder, trim wheel, thrust reversers)".into(),
         }
     }
 }
