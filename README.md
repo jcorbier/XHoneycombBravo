@@ -1,6 +1,6 @@
 # Honeycomb Bravo X-Plane 12 Plugin
 
-A native X-Plane 12 plugin written in Rust that controls the Honeycomb Bravo throttle quadrant LEDs based on aircraft systems and datarefs. This is a Rust port of the original FlyWithLua script.
+A native X-Plane 12 plugin written in Rust for the Honeycomb Bravo throttle quadrant. Controls LEDs based on aircraft datarefs, provides rotary encoder autopilot control, configurable trim wheel support, and thrust reverser commands. Originally a Rust port of the FlyWithLua script, now extended with additional features.
 
 ## Features
 
@@ -16,6 +16,7 @@ A native X-Plane 12 plugin written in Rust that controls the Honeycomb Bravo thr
   - Vacuum, Hydraulic, Voltage warnings
   - Parking Brake, Door indicators, and more
 - **Rotary Encoder Support**: Control IAS, CRS, HDG, VS, ALT, and COM1 frequencies
+- **Trim Wheel**: Configurable elevator trim with adjustable sensitivity (turns, detents per rotation, trim range)
 - **Thrust Reverser Commands**: Individual engine or all-engine thrust reverser control
 
 ## System Requirements
@@ -64,21 +65,27 @@ The plugin registers the following custom commands that can be mapped to the Hon
 - `HoneycombBravo/increase` - Increase the selected autopilot value
 - `HoneycombBravo/decrease` - Decrease the selected autopilot value
 
+### Trim Wheel
+- `HoneycombBravo/elevator_trim_nose_up` - Trim elevator nose up
+- `HoneycombBravo/elevator_trim_nose_down` - Trim elevator nose down
+
 ### Thrust Reversers
 - `HoneycombBravo/thrust_reversers` - Hold all thrust reversers on
 - `HoneycombBravo/thrust_reverser_1` through `thrust_reverser_8` - Individual engine reversers
 
 ## Configuration
 
-### LED Mappings
-
-The plugin supports custom LED-to-dataref mappings via a configuration file. On first run, the plugin will create a default configuration file at:
+The plugin uses a TOML configuration file. On first run, it creates a default at:
 
 ```
 X-Plane 12/Output/preferences/XHoneycombBravo.cfg
 ```
 
-You can edit this TOML file to customize which datarefs control which LEDs. For example:
+Changes to the configuration file require restarting X-Plane or reloading the plugin.
+
+### LED Mappings
+
+Customize which datarefs control which LEDs:
 
 ```toml
 [autopilot]
@@ -92,11 +99,36 @@ engine_fire = "sim/cockpit2/annunciators/engine_fires"
 # ... customize annunciator datarefs
 ```
 
-Changes to the configuration file require restarting X-Plane or reloading the plugin.
+### Trim Wheel
+
+The trim wheel sends 24 detent commands per full 360° rotation. The plugin calculates the trim delta per detent as:
+
+```
+delta = (max_trim - min_trim) / detents_per_rotation / full_turns
+```
+
+Default configuration (Cessna 172):
+
+```toml
+[trim_wheel]
+enabled = true
+elevator_trim_dataref = "sim/cockpit2/controls/elevator_trim"
+min_trim = -1.0
+max_trim = 1.0
+full_turns = 10.0
+detents_per_rotation = 24.0
+```
+
+Adjust `full_turns` to match your aircraft (e.g., a Cessna 172 has ~10 full turns from max nose down to max nose up). For add-on aircraft that use a different trim dataref, change `elevator_trim_dataref` accordingly.
 
 ### Joystick Mapping
 
-Map the Honeycomb Bravo's rotary encoder and buttons to the custom commands in X-Plane's joystick settings (Settings > Joystick > Buttons: Advanced).
+Map the Honeycomb Bravo's controls to the custom commands in X-Plane's joystick settings (Settings > Joystick > Buttons: Advanced):
+
+1. **Rotary encoder**: Bind to `HoneycombBravo/increase` and `HoneycombBravo/decrease`
+2. **Mode buttons**: Bind to the `HoneycombBravo/mode_*` commands
+3. **Trim wheel**: Find the trim wheel up/down buttons and rebind them to `HoneycombBravo/elevator_trim_nose_up` and `HoneycombBravo/elevator_trim_nose_down`
+4. **Thrust reversers**: Bind to `HoneycombBravo/thrust_reversers` or individual engine commands
 
 ## Building from Source
 
@@ -135,4 +167,4 @@ GPLv3 License - see LICENSE file for details
 
 Based on the original HoneycombBravoMacHelper FlyWithLua script, which was itself based on HoneycombBravoHelper for Linux by Daniel Peukert.
 
-Modified for macOS by Joe Milligan, ported to Rust by Jeremie Corbier.
+Modified for macOS by Joe Milligan, ported to Rust by Jeremie Corbier. Trim wheel support added by [Jonas Lalin](https://github.com/jonaslalin/), based on the [HoneycombBravoTrimHelper](https://gist.github.com/Spo1ler/fa89eec64fdae462adf7a0a53c19987b) FlyWithLua script by Egor Shkorov.

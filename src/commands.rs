@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use crate::config::PluginConfig;
 use crate::xdebug;
 use once_cell::sync::Lazy;
 use std::ffi::CString;
@@ -45,6 +46,20 @@ unsafe impl Send for CommandDataRefs {}
 unsafe impl Sync for CommandDataRefs {}
 
 static COMMAND_DATAREFS: Lazy<Mutex<Option<CommandDataRefs>>> = Lazy::new(|| Mutex::new(None));
+
+/// Trim wheel state holding the writable dataref and pre-computed delta
+pub struct TrimState {
+    pub trim_dataref: XPLMDataRef,
+    pub trim_delta: f32,
+    pub min_trim: f32,
+    pub max_trim: f32,
+}
+
+// SAFETY: Same as CommandDataRefs - XPLMDataRef pointers are safe to send once obtained.
+unsafe impl Send for TrimState {}
+unsafe impl Sync for TrimState {}
+
+static TRIM_STATE: Lazy<Mutex<Option<TrimState>>> = Lazy::new(|| Mutex::new(None));
 
 impl CommandDataRefs {
     pub fn new() -> Self {
@@ -233,6 +248,26 @@ pub fn set_reverser_state(engine: Option<usize>, state: bool) {
     }
 }
 
+/// Apply trim wheel delta in the given direction (+1.0 = nose up, -1.0 = nose down)
+fn apply_trim(direction: f32) {
+    let state_guard = TRIM_STATE.lock().unwrap();
+    let state = match state_guard.as_ref() {
+        Some(s) => s,
+        None => return,
+    };
+
+    unsafe {
+        if state.trim_dataref.is_null() {
+            return;
+        }
+        let current = XPLMGetDataf(state.trim_dataref);
+        let new_val = (current + state.trim_delta * direction).clamp(state.min_trim, state.max_trim);
+        XPLMSetDataf(state.trim_dataref, new_val);
+    }
+}
+
+// --- Command callbacks (extern "C" handlers) ---
+
 /// Command callback for mode selection
 unsafe extern "C" fn mode_command_handler(
     _cmd_ref: XPLMCommandRef,
@@ -288,8 +323,21 @@ unsafe extern "C" fn reverser_handler(
     0
 }
 
+/// Command callback for trim wheel
+unsafe extern "C" fn trim_command_handler(
+    _cmd_ref: XPLMCommandRef,
+    phase: XPLMCommandPhase,
+    refcon: *mut c_void,
+) -> c_int {
+    if phase == xplm_CommandBegin as XPLMCommandPhase {
+        let direction = if refcon as usize == 1 { 1.0 } else { -1.0 };
+        apply_trim(direction);
+    }
+    0
+}
+
 /// Register all custom commands
-pub fn register_commands() {
+pub fn register_commands(config: &PluginConfig) {
     // Initialize command datarefs
     *COMMAND_DATAREFS.lock().unwrap() = Some(CommandDataRefs::new());
 
@@ -361,6 +409,69 @@ pub fn register_commands() {
                 CString::new(format!("Hold thrust reverser #{} on.", i + 1)).unwrap();
             let cmd = XPLMCreateCommand(reverser_cmd.as_ptr(), reverser_desc.as_ptr());
             XPLMRegisterCommandHandler(cmd, Some(reverser_handler), 1, i as *mut c_void);
+        }
+
+        // Trim wheel commands
+        let trim = &config.trim_wheel;
+        if trim.enabled {
+            if trim.detents_per_rotation <= 0.0
+                || trim.full_turns <= 0.0
+            {
+                xdebug!(
+                    "Invalid trim wheel config (detents_per_rotation: {}, full_turns: {}), skipping trim registration",
+                    trim.detents_per_rotation,
+                    trim.full_turns
+                );
+            } else {
+                let trim_dataref_name =
+                    CString::new(trim.elevator_trim_dataref.as_str()).unwrap();
+                let trim_dataref = XPLMFindDataRef(trim_dataref_name.as_ptr());
+
+                if trim_dataref.is_null() {
+                    xdebug!(
+                        "Could not find trim dataref '{}', trim wheel commands will be inactive",
+                        trim.elevator_trim_dataref
+                    );
+                }
+
+                let trim_delta = (trim.max_trim - trim.min_trim)
+                    / trim.detents_per_rotation
+                    / trim.full_turns;
+
+                *TRIM_STATE.lock().unwrap() = Some(TrimState {
+                    trim_dataref,
+                    trim_delta,
+                    min_trim: trim.min_trim,
+                    max_trim: trim.max_trim,
+                });
+
+                let cmd_name = CString::new("HoneycombBravo/elevator_trim_nose_up").unwrap();
+                let cmd_desc = CString::new("Trim elevator nose up").unwrap();
+                let cmd = XPLMCreateCommand(cmd_name.as_ptr(), cmd_desc.as_ptr());
+                XPLMRegisterCommandHandler(
+                    cmd,
+                    Some(trim_command_handler),
+                    1,
+                    std::ptr::dangling_mut::<c_void>(),
+                );
+
+                let cmd_name = CString::new("HoneycombBravo/elevator_trim_nose_down").unwrap();
+                let cmd_desc = CString::new("Trim elevator nose down").unwrap();
+                let cmd = XPLMCreateCommand(cmd_name.as_ptr(), cmd_desc.as_ptr());
+                XPLMRegisterCommandHandler(
+                    cmd,
+                    Some(trim_command_handler),
+                    1,
+                    std::ptr::null_mut::<c_void>(),
+                );
+
+                xdebug!(
+                    "Registered trim wheel commands (delta per detent: {:.6}, turns: {}, detents/rotation: {})",
+                    trim_delta,
+                    trim.full_turns,
+                    trim.detents_per_rotation
+                );
+            }
         }
     }
 
