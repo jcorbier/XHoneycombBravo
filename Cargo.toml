@@ -1,6 +1,6 @@
 [package]
 name = "honeycomb-bravo-xplane"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 authors = ["Jeremie Corbier"]
 description = "X-Plane 12 plugin for the Honeycomb Bravo throttle quadrant (LEDs, rotary encoder, trim wheel, thrust reversers)"

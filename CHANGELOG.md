@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-09
+
 ### Added
 - Configurable trim wheel support with custom X-Plane commands (`HoneycombBravo/elevator_trim_nose_up` and `HoneycombBravo/elevator_trim_nose_down`), thanks to [Jonas Lalin](https://github.com/jonaslalin/).
 - New `[trim_wheel]` section in configuration file with adjustable parameters: `full_turns`, `detents_per_rotation`, `min_trim`, `max_trim`, and `elevator_trim_dataref`.
@@ -43,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration file support (`XHoneycombBravo.cfg`) in X-Plane preferences.
 - macOS native binary generation (Universal `x86_64` and `arm64`).
 
-[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.3.0
 [0.2.1]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.1.0

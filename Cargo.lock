@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "honeycomb-bravo-xplane"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "hidapi",
  "once_cell",
