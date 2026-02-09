@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Configurable trim wheel support with custom X-Plane commands (`HoneycombBravo/elevator_trim_nose_up` and `HoneycombBravo/elevator_trim_nose_down`), thanks to [Jonas Lalin](https://github.com/jonaslalin/).
+- New `[trim_wheel]` section in configuration file with adjustable parameters: `full_turns`, `detents_per_rotation`, `min_trim`, `max_trim`, and `elevator_trim_dataref`.
+
+### Changed
+- Renamed `LedConfig` to `PluginConfig` to reflect the broader scope of the configuration.
+- Updated plugin description to cover all features (LEDs, rotary encoder, trim wheel, thrust reversers).
+
 ## [0.2.1] - 2026-01-07
 
 ### Added
