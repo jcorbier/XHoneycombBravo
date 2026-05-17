@@ -1,37 +1,44 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Dataref accessors loaded from [`PluginConfig`], plus bool-coercion helpers
+//! the LED layer uses to turn raw dataref values into "lit" decisions.
+
 use crate::config::PluginConfig;
 use crate::xdebug;
-use xplm::data::borrowed::DataRef;
 use xplm::data::ReadOnly;
+use xplm::data::borrowed::DataRef;
 
-/// Helper to check if an autopilot state is active (>= 1)
+/// Autopilot mode (0 off / 1 armed / 2 captured): lit on armed-or-better.
 pub fn get_ap_state(value: i32) -> bool {
     value >= 1
 }
 
-/// Helper to check if any element in an array is true (== 1)
+/// True iff any element equals 1. Used for per-engine annunciator arrays.
 pub fn array_has_true(array: &[i32]) -> bool {
     array.contains(&1)
 }
 
-/// Helper to convert int to bool
+/// Coerce an X-Plane "boolean" int (0 / 1) to a Rust `bool`.
 pub fn int_to_bool(value: i32) -> bool {
     value != 0
 }
 
-/// Helper to convert float to bool
+/// Coerce a continuous-ratio float to a `bool` (any positive value → true).
 pub fn float_to_bool(value: f32) -> bool {
     value > 0.0
 }
 
-/// Dataref accessors loaded dynamically from configuration
+/// Dataref handles loaded from configuration.
+///
+/// SAFETY: the underlying `XPLMDataRef` pointers are valid for the plugin's
+/// lifetime and X-Plane invokes plugin callbacks from a single thread, so the
+/// `Send + Sync` impls below are sound and let us hold this in a static.
 pub struct DataRefs {
-    // Bus voltage - master LED switch
+    // Bus voltage drives the master "panel on/off" switch.
     pub bus_voltage: Option<DataRef<[f32], ReadOnly>>,
 
-    // Autopilot
+    // Autopilot row (panel labels: HDG, NAV, APR, REV, ALT, VS, IAS, AUTO PILOT).
     pub hdg: Option<DataRef<i32, ReadOnly>>,
     pub nav: Option<DataRef<i32, ReadOnly>>,
     pub apr: Option<DataRef<i32, ReadOnly>>,
@@ -41,30 +48,36 @@ pub struct DataRefs {
     pub ias: Option<DataRef<i32, ReadOnly>>,
     pub ap: Option<DataRef<i32, ReadOnly>>,
 
-    // Landing gear
+    // Landing-gear strip (3 dual-color LEDs: L, N, R).
     pub gear: Option<DataRef<[f32], ReadOnly>>,
 
-    // Annunciator panel - top row
-    pub master_warn: Option<DataRef<i32, ReadOnly>>,
-    pub fire: Option<DataRef<[i32], ReadOnly>>,
-    pub oil_low_p: Option<DataRef<[i32], ReadOnly>>,
-    pub fuel_low_p: Option<DataRef<[i32], ReadOnly>>,
+    // Annunciator top row (left → right): field names match panel labels.
+    pub master_warning: Option<DataRef<i32, ReadOnly>>,
+    pub engine_fire: Option<DataRef<[i32], ReadOnly>>,
+    pub low_oil_pressure: Option<DataRef<[i32], ReadOnly>>,
+    pub low_fuel_pressure: Option<DataRef<[i32], ReadOnly>>,
     pub anti_ice: Option<DataRef<i32, ReadOnly>>,
-    pub starter: Option<DataRef<[i32], ReadOnly>>,
+    pub starter_engaged: Option<DataRef<[i32], ReadOnly>>,
     pub apu: Option<DataRef<i32, ReadOnly>>,
 
-    // Annunciator panel - bottom row
+    // Annunciator bottom row (left → right): field names match panel labels.
     pub master_caution: Option<DataRef<i32, ReadOnly>>,
     pub vacuum: Option<DataRef<i32, ReadOnly>>,
-    pub hydro_low_p: Option<DataRef<i32, ReadOnly>>,
-    pub aux_fuel_pump_l: Option<DataRef<i32, ReadOnly>>,
-    pub aux_fuel_pump_r: Option<DataRef<i32, ReadOnly>>,
-    pub wheel_brake: Option<DataRef<f32, ReadOnly>>,
-    pub volt_low: Option<DataRef<i32, ReadOnly>>,
+    pub low_hyd_pressure: Option<DataRef<i32, ReadOnly>>,
+    pub aux_fuel_pump_left: Option<DataRef<i32, ReadOnly>>,
+    pub aux_fuel_pump_right: Option<DataRef<i32, ReadOnly>>,
+    pub parking_brake: Option<DataRef<f32, ReadOnly>>,
+    pub low_volts: Option<DataRef<i32, ReadOnly>>,
+
+    // Auxiliary inputs feeding the DOOR annunciator (any-of).
     pub canopy: Option<DataRef<f32, ReadOnly>>,
     pub doors: Option<DataRef<[f32], ReadOnly>>,
     pub cabin_door: Option<DataRef<i32, ReadOnly>>,
 }
+
+// SAFETY: see DataRefs doc comment.
+unsafe impl Send for DataRefs {}
+unsafe impl Sync for DataRefs {}
 
 impl DataRefs {
     pub fn new(config: &PluginConfig) -> Self {
@@ -84,21 +97,21 @@ impl DataRefs {
 
             gear: DataRef::find(&config.landing_gear.gear).ok(),
 
-            master_warn: DataRef::find(&config.annunciators.master_warning).ok(),
-            fire: DataRef::find(&config.annunciators.engine_fire).ok(),
-            oil_low_p: DataRef::find(&config.annunciators.oil_pressure_low).ok(),
-            fuel_low_p: DataRef::find(&config.annunciators.fuel_pressure_low).ok(),
+            master_warning: DataRef::find(&config.annunciators.master_warning).ok(),
+            engine_fire: DataRef::find(&config.annunciators.engine_fire).ok(),
+            low_oil_pressure: DataRef::find(&config.annunciators.low_oil_pressure).ok(),
+            low_fuel_pressure: DataRef::find(&config.annunciators.low_fuel_pressure).ok(),
             anti_ice: DataRef::find(&config.annunciators.anti_ice).ok(),
-            starter: DataRef::find(&config.annunciators.starter).ok(),
+            starter_engaged: DataRef::find(&config.annunciators.starter_engaged).ok(),
             apu: DataRef::find(&config.annunciators.apu).ok(),
 
             master_caution: DataRef::find(&config.annunciators.master_caution).ok(),
             vacuum: DataRef::find(&config.annunciators.vacuum).ok(),
-            hydro_low_p: DataRef::find(&config.annunciators.hydraulic_pressure).ok(),
-            aux_fuel_pump_l: DataRef::find(&config.annunciators.aux_fuel_pump_left).ok(),
-            aux_fuel_pump_r: DataRef::find(&config.annunciators.aux_fuel_pump_right).ok(),
-            wheel_brake: DataRef::find(&config.system.wheel_brake).ok(),
-            volt_low: DataRef::find(&config.annunciators.low_voltage).ok(),
+            low_hyd_pressure: DataRef::find(&config.annunciators.low_hyd_pressure).ok(),
+            aux_fuel_pump_left: DataRef::find(&config.annunciators.aux_fuel_pump_left).ok(),
+            aux_fuel_pump_right: DataRef::find(&config.annunciators.aux_fuel_pump_right).ok(),
+            parking_brake: DataRef::find(&config.system.parking_brake).ok(),
+            low_volts: DataRef::find(&config.annunciators.low_volts).ok(),
             canopy: DataRef::find(&config.system.canopy).ok(),
             doors: DataRef::find(&config.system.doors).ok(),
             cabin_door: DataRef::find(&config.system.cabin_door).ok(),

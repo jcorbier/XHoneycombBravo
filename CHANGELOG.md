@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **ANTI ICE annunciator no longer inverted.** Follows `sim/cockpit2/annunciators/pitot_heat` directly: lit when X-Plane thinks anti-ice is required and not active.
+- **PARKING BRAKE annunciator wired to the parking-brake dataref** (`sim/cockpit2/controls/parking_brake_ratio`) instead of the toe-brake one (`wheel_brake_ratio`). The old `wheel_brake` config key still loads via `serde(alias)`.
+- **Gear-deployed threshold.** Green/red logic uses `>= 0.99` / `<= 0.01` so aircraft that report `0.9999` for fully-extended gear show green instead of red.
+- **Trim wheel no longer registers no-op commands** when its dataref is missing (used to register handlers and log a warning).
+- **Preferences directory looked up via `XPLMGetPrefsPath`** instead of walking the current working directory looking for a `Resources` folder. The old probe failed whenever X-Plane was launched from somewhere unusual.
+
+### Changed
+- **Internal names match the panel silkscreen** (`master_warning`, `low_oil_pressure`, `starter_engaged`, `parking_brake`, …). Pre-rename config keys still load via `serde(alias)`.
+- **Native macOS IOKit replaces `hidapi` and `rusb`** for LED feature reports; no Homebrew dependency.
+- **LED writes are ephemeral** (open / send / close per update) and non-exclusive, so X-Plane keeps the joystick handle. No startup delay, no `hid_read_value_timeout` errors.
+- **Device matching pinned** to VID `0x294B` / PID `0x1901` / Usage Page `0x01` / Usage `0x04`, so the Alpha yoke or other HID collections can't be picked up by mistake.
+- **Flight loop throttled to 20 Hz** (50 ms); LEDs feel instant and we stop burning ~5× the dataref reads.
+- **3 s forced LED refresh** on top of the existing change-cache, so silent hardware resets (USB unplug/replug, sleep/wake) re-sync automatically instead of staying dark until the next dataref change.
+- **Rust 2024 edition.** Dependencies bumped, `once_cell` replaced with stdlib `OnceLock` / `LazyLock`.
+- **Command handlers wrapped in `OwnedCommand` RAII** so `XPluginStop` unregisters every handler before the dylib unloads.
+- **Cleanup pass.** Single source of truth for LED panel labels (`ALL_LEDS` in `hid`) and for `mode_*` commands (`MODES` in `commands`); `Option<&T>` dataref accessors; pedantic-clippy clean.
+- **Co-authored.** [Jonas Lalin](https://github.com/jonaslalin/) added as `Cargo.toml` co-author for the post-0.3.0 work.
+
+### Added
+- **`[system] leds_enabled`** config option (default `true`). Set to `false` to skip all HID LED access.
+- **Plugin version printed on startup.** First log line: `Plugin starting v<version> (built for Rust <toolchain>)`.
+- **Sim-elapsed timestamp on every plugin log line** (`t=12.345s`), via `XPLMGetElapsedTime`, since `XPLMDebugString` is not timestamped.
+- **Diagnostic LED logging.** One line on every change to the desired LED state, listing the lit lamps and every dataref that fed into the decision.
+- **HID lifecycle logging.** One-shot `HID acquired` / `HID lost` / `HID entering Ns backoff` / `HID resumed from backoff` lines on the edges, so hot-plug and port-change events are obvious.
+- **Rotary encoder turn logging** for confirming joystick bindings reach the plugin.
+- **GitHub Actions CI** running `cargo fmt --check`, `cargo clippy -D warnings`, and a universal release build.
+
 ## [0.3.0] - 2026-02-09
 
 ### Added
