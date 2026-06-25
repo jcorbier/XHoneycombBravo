@@ -1,0 +1,42 @@
+name: Check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: Build, fmt, clippy
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-apple-darwin, aarch64-apple-darwin
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy (aarch64)
+        run: cargo clippy --release --target aarch64-apple-darwin --all-targets -- -D warnings
+
+      - name: build (x86_64)
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: build (aarch64)
+        run: cargo build --release --target aarch64-apple-darwin

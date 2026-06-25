@@ -3,6 +3,7 @@
 
 use crate::xdebug;
 use serde::{Deserialize, Serialize};
+use std::ffi::CStr;
 use std::fs;
 use std::path::PathBuf;
 
@@ -21,7 +22,7 @@ pub struct PluginConfig {
     #[serde(default = "default_system")]
     pub system: SystemConfig,
 
-    #[serde(default = "default_trim_wheel")]
+    #[serde(default)]
     pub trim_wheel: TrimWheelConfig,
 }
 
@@ -42,30 +43,47 @@ pub struct LandingGearConfig {
     pub gear: String,
 }
 
+/// One field per annunciator LED, field names matching the panel silkscreen.
+/// `serde(alias = …)` keeps pre-rename configs loading without manual migration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnunciatorsConfig {
     pub master_warning: String,
     pub engine_fire: String,
-    pub oil_pressure_low: String,
-    pub fuel_pressure_low: String,
+    #[serde(alias = "oil_pressure_low")]
+    pub low_oil_pressure: String,
+    #[serde(alias = "fuel_pressure_low")]
+    pub low_fuel_pressure: String,
     pub anti_ice: String,
-    pub starter: String,
+    #[serde(alias = "starter")]
+    pub starter_engaged: String,
     pub apu: String,
     pub master_caution: String,
     pub vacuum: String,
-    pub hydraulic_pressure: String,
+    #[serde(alias = "hydraulic_pressure")]
+    pub low_hyd_pressure: String,
     pub aux_fuel_pump_left: String,
     pub aux_fuel_pump_right: String,
-    pub low_voltage: String,
+    #[serde(alias = "low_voltage")]
+    pub low_volts: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
+    /// When false, the plugin does not open the Bravo over HID at all.
+    #[serde(default = "default_leds_enabled")]
+    pub leds_enabled: bool,
     pub bus_voltage: String,
-    pub wheel_brake: String,
+    /// Drives the PARKING BRAKE annunciator. Historical alias `wheel_brake`
+    /// still loads, but the value must point at a parking-brake dataref.
+    #[serde(alias = "wheel_brake")]
+    pub parking_brake: String,
     pub canopy: String,
     pub doors: String,
     pub cabin_door: String,
+}
+
+fn default_leds_enabled() -> bool {
+    true
 }
 
 /// Trim wheel configuration
@@ -112,7 +130,7 @@ impl Default for PluginConfig {
             landing_gear: default_landing_gear(),
             annunciators: default_annunciators(),
             system: default_system(),
-            trim_wheel: default_trim_wheel(),
+            trim_wheel: TrimWheelConfig::default(),
         }
     }
 }
@@ -140,127 +158,77 @@ fn default_annunciators() -> AnnunciatorsConfig {
     AnnunciatorsConfig {
         master_warning: "sim/cockpit2/annunciators/master_warning".to_string(),
         engine_fire: "sim/cockpit2/annunciators/engine_fires".to_string(),
-        oil_pressure_low: "sim/cockpit2/annunciators/oil_pressure_low".to_string(),
-        fuel_pressure_low: "sim/cockpit2/annunciators/fuel_pressure_low".to_string(),
+        low_oil_pressure: "sim/cockpit2/annunciators/oil_pressure_low".to_string(),
+        low_fuel_pressure: "sim/cockpit2/annunciators/fuel_pressure_low".to_string(),
         anti_ice: "sim/cockpit2/annunciators/pitot_heat".to_string(),
-        starter: "sim/cockpit2/engine/actuators/starter_hit".to_string(),
+        starter_engaged: "sim/cockpit2/engine/actuators/starter_hit".to_string(),
         apu: "sim/cockpit2/electrical/APU_running".to_string(),
         master_caution: "sim/cockpit2/annunciators/master_caution".to_string(),
         vacuum: "sim/cockpit2/annunciators/low_vacuum".to_string(),
-        hydraulic_pressure: "sim/cockpit2/annunciators/hydraulic_pressure".to_string(),
+        low_hyd_pressure: "sim/cockpit2/annunciators/hydraulic_pressure".to_string(),
         aux_fuel_pump_left: "sim/cockpit2/fuel/transfer_pump_left".to_string(),
         aux_fuel_pump_right: "sim/cockpit2/fuel/transfer_pump_right".to_string(),
-        low_voltage: "sim/cockpit2/annunciators/low_voltage".to_string(),
+        low_volts: "sim/cockpit2/annunciators/low_voltage".to_string(),
     }
 }
 
 fn default_system() -> SystemConfig {
     SystemConfig {
+        leds_enabled: default_leds_enabled(),
         bus_voltage: "sim/cockpit2/electrical/bus_volts".to_string(),
-        wheel_brake: "sim/cockpit2/controls/wheel_brake_ratio".to_string(),
+        parking_brake: "sim/cockpit2/controls/parking_brake_ratio".to_string(),
         canopy: "sim/flightmodel2/misc/canopy_open_ratio".to_string(),
         doors: "sim/flightmodel2/misc/door_open_ratio".to_string(),
         cabin_door: "sim/cockpit2/annunciators/cabin_door_open".to_string(),
     }
 }
 
-fn default_trim_wheel() -> TrimWheelConfig {
-    TrimWheelConfig::default()
-}
-
-/// Get the path to the X-Plane preferences directory
+/// X-Plane's preferences directory. `XPLMGetPrefsPath` returns a path to a
+/// file *inside* that directory; we strip the file name.
 fn get_preferences_path() -> Option<PathBuf> {
-    // Try to get X-Plane system path
-    // The xplm crate doesn't expose system paths directly, so we'll use a workaround
-    // We'll look for the preferences directory relative to common X-Plane locations
-
-    // For now, use a simple approach: check if we're in the X-Plane directory structure
-    // and navigate to Output/preferences
-    let current_dir = std::env::current_dir().ok()?;
-
-    // Try to find X-Plane root by looking for Resources folder
-    let mut xplane_root = current_dir.clone();
-    for _ in 0..5 {
-        if xplane_root.join("Resources").exists() {
-            let prefs_path = xplane_root.join("Output").join("preferences");
-            if prefs_path.exists() || fs::create_dir_all(&prefs_path).is_ok() {
-                return Some(prefs_path);
-            }
-        }
-        if !xplane_root.pop() {
-            break;
-        }
+    // SDK requires a buffer of at least 512 bytes.
+    let mut buf = [0u8; 1024];
+    unsafe {
+        xplm_sys::XPLMGetPrefsPath(buf.as_mut_ptr().cast::<std::os::raw::c_char>());
     }
-
-    // Fallback: try common X-Plane installation paths
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var("HOME").ok()?;
-        let paths = vec![
-            PathBuf::from(&home)
-                .join("X-Plane 12")
-                .join("Output")
-                .join("preferences"),
-            PathBuf::from(&home)
-                .join("Desktop")
-                .join("X-Plane 12")
-                .join("Output")
-                .join("preferences"),
-            PathBuf::from("/Applications/X-Plane 12/Output/preferences"),
-        ];
-
-        for path in paths {
-            if path.exists() || fs::create_dir_all(&path).is_ok() {
-                return Some(path);
-            }
-        }
+    let path = CStr::from_bytes_until_nul(&buf).ok()?.to_str().ok()?;
+    let dir = PathBuf::from(path).parent()?.to_path_buf();
+    if !dir.exists() {
+        fs::create_dir_all(&dir).ok()?;
     }
-
-    None
+    Some(dir)
 }
 
-/// Load configuration from file, or create default if not found
+/// Load `XHoneycombBravo.cfg`, falling back to defaults (and writing them) on
+/// first run.
 pub fn load_config() -> PluginConfig {
-    let config_path = match get_preferences_path() {
-        Some(mut path) => {
-            path.push("XHoneycombBravo.cfg");
-            path
-        }
-        None => {
-            xdebug!("Could not find X-Plane preferences directory, using default config");
-            return PluginConfig::default();
-        }
+    let Some(mut config_path) = get_preferences_path() else {
+        xdebug!("No X-Plane preferences directory; using default config");
+        return PluginConfig::default();
     };
-
+    config_path.push("XHoneycombBravo.cfg");
     xdebug!("Config path: {:?}", config_path);
 
-    // Try to load existing config
     if config_path.exists() {
-        match fs::read_to_string(&config_path) {
-            Ok(contents) => match toml::from_str::<PluginConfig>(&contents) {
-                Ok(config) => {
-                    xdebug!("Loaded configuration from {:?}", config_path);
-                    return config;
-                }
-                Err(e) => {
-                    xdebug!("Error parsing config file: {}. Using defaults.", e);
-                }
-            },
-            Err(e) => {
-                xdebug!("Error reading config file: {}. Using defaults.", e);
+        match fs::read_to_string(&config_path).and_then(|s| {
+            toml::from_str::<PluginConfig>(&s)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        }) {
+            Ok(config) => {
+                xdebug!("Loaded configuration from {:?}", config_path);
+                return config;
             }
+            Err(e) => xdebug!("Could not load {:?}: {}. Using defaults.", config_path, e),
         }
     }
 
-    // Create default config file
     let default_config = PluginConfig::default();
-    if let Ok(toml_string) = toml::to_string_pretty(&default_config) {
-        if let Err(e) = fs::write(&config_path, toml_string) {
-            xdebug!("Could not write default config: {}", e);
-        } else {
-            xdebug!("Created default configuration at {:?}", config_path);
-        }
+    match toml::to_string_pretty(&default_config) {
+        Ok(toml_string) => match fs::write(&config_path, toml_string) {
+            Ok(()) => xdebug!("Created default configuration at {:?}", config_path),
+            Err(e) => xdebug!("Could not write default config: {}", e),
+        },
+        Err(e) => xdebug!("Could not serialize default config: {}", e),
     }
-
     default_config
 }
