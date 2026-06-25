@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-25
+
 ### Fixed
 - **ANTI ICE annunciator no longer inverted.** Follows `sim/cockpit2/annunciators/pitot_heat` directly: lit when X-Plane thinks anti-ice is required and not active.
 - **PARKING BRAKE annunciator wired to the parking-brake dataref** (`sim/cockpit2/controls/parking_brake_ratio`) instead of the toe-brake one (`wheel_brake_ratio`). The old `wheel_brake` config key still loads via `serde(alias)`.
@@ -73,7 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration file support (`XHoneycombBravo.cfg`) in X-Plane preferences.
 - macOS native binary generation (Universal `x86_64` and `arm64`).
 
-[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jcorbier/XHoneycombBravo/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.3.0
 [0.2.1]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.2.1
 [0.2.0]: https://github.com/jcorbier/XHoneycombBravo/releases/tag/v0.2.0
