@@ -34,6 +34,32 @@ jobs:
             target/x86_64-apple-darwin/release/libhoneycomb_bravo_xplane.dylib \
             target/aarch64-apple-darwin/release/libhoneycomb_bravo_xplane.dylib
 
+      - name: Install Apple Certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
+          security create-keychain -p "$P12_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$P12_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$P12_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+      - name: Codesign Universal Binary
+        run: |
+          echo "Signing output/mac.xpl with Developer ID Application and Hardened Runtime..."
+          codesign --force --timestamp --options runtime \
+            --sign "Developer ID Application" \
+            output/mac.xpl
+          codesign --verify --verbose output/mac.xpl
+
       - name: Prepare Release Archive
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
@@ -45,6 +71,24 @@ jobs:
           cp skunkcrafts_updater.cfg release_artifact/XHoneycombBravo/
           cd release_artifact
           zip -r ../XHoneycombBravo-${TAG_NAME}.zip XHoneycombBravo
+
+      - name: Notarize Release Archive
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Setting up Apple API Key..."
+          mkdir -p ~/.private_keys
+          echo "$APPLE_API_KEY" | base64 --decode > ~/.private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
+
+          echo "Submitting XHoneycombBravo-${TAG_NAME}.zip to Apple Notary Service..."
+          xcrun notarytool submit "XHoneycombBravo-${TAG_NAME}.zip" \
+            --key "$HOME/.private_keys/AuthKey_${APPLE_API_KEY_ID}.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
 
       - name: Create Skunkcrafts Updater package
         run: |
@@ -90,3 +134,11 @@ jobs:
         with:
           files: XHoneycombBravo-*.zip
           body_path: RELEASE_NOTES.md
+
+      - name: Cleanup Keychain & API Keys
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -rf ~/.private_keys
