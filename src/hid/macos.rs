@@ -45,15 +45,12 @@ type CFDictionaryRef = *const c_void;
 #[link(name = "IOKit", kind = "framework")]
 unsafe extern "C" {
     fn IOHIDManagerCreate(allocator: *const c_void, options: u32) -> IOHIDManagerRef;
-    fn IOHIDManagerSetDeviceMatching(
-        manager: IOHIDManagerRef,
-        matching: CFDictionaryRef,
-    ) -> IOReturn;
+    fn IOHIDManagerSetDeviceMatching(manager: IOHIDManagerRef, matching: CFDictionaryRef);
     fn IOHIDManagerOpen(manager: IOHIDManagerRef, options: u32) -> IOReturn;
-    fn IOHIDManagerClose(manager: IOHIDManagerRef, options: u32);
+    fn IOHIDManagerClose(manager: IOHIDManagerRef, options: u32) -> IOReturn;
     fn IOHIDManagerCopyDevices(manager: IOHIDManagerRef) -> CFSetRef;
     fn IOHIDDeviceOpen(device: IOHIDDeviceRef, options: u32) -> IOReturn;
-    fn IOHIDDeviceClose(device: IOHIDDeviceRef, options: u32);
+    fn IOHIDDeviceClose(device: IOHIDDeviceRef, options: u32) -> IOReturn;
     fn IOHIDDeviceSetReport(
         device: IOHIDDeviceRef,
         report_type: u32,
@@ -218,14 +215,8 @@ impl HidConnection {
             }
 
             let matching = matching_dict();
-            if IOHIDManagerSetDeviceMatching(manager, matching.as_concrete_TypeRef().cast())
-                != KERN_SUCCESS
-            {
-                xdebug!("IOHIDManagerSetDeviceMatching failed");
-                IOHIDManagerClose(manager, K_IO_HID_OPTIONS_TYPE_NONE);
-                CFRelease(manager.cast_const());
-                return None;
-            }
+            // Apple's API returns void; matching failures surface as an empty device set.
+            IOHIDManagerSetDeviceMatching(manager, matching.as_concrete_TypeRef().cast());
 
             if IOHIDManagerOpen(manager, K_IO_HID_OPTIONS_TYPE_NONE) != KERN_SUCCESS {
                 xdebug!("IOHIDManagerOpen failed");
