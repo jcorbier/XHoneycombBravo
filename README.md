@@ -1,13 +1,13 @@
 # Honeycomb Bravo X-Plane 12 Plugin
 
-Native X-Plane 12 plugin in Rust for the Honeycomb Bravo throttle quadrant. Drives the panel LEDs from aircraft datarefs and registers custom commands for the rotary encoder, trim wheel, and thrust reversers.
+Native X-Plane 12 plugin in Rust for the Honeycomb Bravo throttle quadrant and Bravo Lite. Drives panel LEDs from aircraft datarefs and registers custom commands for the rotary encoder, trim wheel, and thrust reversers.
 
 Originally a Rust port of the FlyWithLua scripts (see [Credits](#credits)), now extended with native macOS IOKit HID, trim wheel support, and a diagnostic log layer.
 
 ## Features
 
 - **Autopilot LEDs**: HDG, NAV, APR, REV, ALT, VS, IAS, AP
-- **Landing gear LEDs**: green (deployed), red (in transit), off (stowed)
+- **Landing gear LEDs**: green (deployed), red (in transit), off (stowed), including Bravo Lite
 - **All 14 annunciators**: MASTER WARNING / CAUTION, ENGINE FIRE, LOW OIL / FUEL / HYD PRESSURE, LOW VOLTS, ANTI ICE, STARTER ENGAGED, APU, VACUUM, AUX FUEL PUMP, PARKING BRAKE, DOOR
 - **Rotary encoder commands**: IAS, CRS, HDG, VS, ALT, COM1 coarse / fine
 - **Trim wheel**: configurable elevator trim (turns, detents per rotation, trim range)
@@ -17,7 +17,7 @@ Originally a Rust port of the FlyWithLua scripts (see [Credits](#credits)), now 
 
 - X-Plane 12
 - macOS (Apple Silicon or Intel)
-- Honeycomb Bravo Throttle Quadrant
+- Honeycomb Bravo Throttle Quadrant or Bravo Lite
 
 No Homebrew libraries needed: LED control uses native macOS IOKit.
 
@@ -69,10 +69,13 @@ engine_fire = "sim/cockpit2/annunciators/engine_fires"
 
 ```toml
 [system]
+device_model = "bravo"
 leds_enabled = true
 ```
 
-With `leds_enabled = true` (the default) LED updates go out over IOKit with non-exclusive access (`kIOHIDOptionsTypeNone`). The plugin opens the device only for the duration of one feature-report write and closes immediately, so X-Plane keeps the joystick handle. Set it to `false` to disable all HID traffic and use only the rotary encoder / trim wheel commands.
+Set `device_model` to `bravo_lite` for the Bravo Lite (USB product ID `0x1909`). Existing configurations and newly generated defaults use `bravo`, preserving original Bravo behavior. The Lite exposes only its six dual-color landing-gear LEDs; autopilot and annunciator LED state is not sent to it.
+
+With `leds_enabled = true` (the default) LED updates go out over IOKit with non-exclusive access (`kIOHIDOptionsTypeNone`). The plugin opens the selected device only for the duration of one feature-report write and closes immediately, so X-Plane keeps the joystick handle. Set it to `false` to disable all HID traffic and use only the plugin commands.
 
 ### Trim wheel
 
@@ -170,3 +173,4 @@ GPL-3.0. See [LICENSE](LICENSE).
 - macOS FlyWithLua port: HoneycombBravoMacHelper by Joe Milligan.
 - Rust port: Jeremie Corbier.
 - Trim wheel support: [Jonas Lalin](https://github.com/jonaslalin/), based on the [HoneycombBravoTrimHelper](https://gist.github.com/Spo1ler/fa89eec64fdae462adf7a0a53c19987b) FlyWithLua script by Egor Shkorov.
+- Bravo Lite report format: [bergsm/bravo_driver](https://github.com/bergsm/bravo_driver).

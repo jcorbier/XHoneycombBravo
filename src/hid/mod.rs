@@ -12,6 +12,7 @@ compile_error!("XHoneycombBravo currently supports macOS only");
 
 mod macos;
 
+use crate::protocol::DeviceModel;
 use macos::HidConnection;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -147,12 +148,6 @@ pub const ALL_LEDS: &[Led] = &[
 ];
 
 pub const BANK_COUNT: usize = 4;
-/// Bravo feature-report payload size. IOKit takes the report ID as a separate
-/// argument, so the buffer must be payload-only — no leading report-ID byte
-/// (raw IOKit ≠ hidapi here). Bytes 0..4 are the LED banks, the rest is padding.
-const REPORT_LEN: usize = 64;
-/// HID report ID for the LED feature report (Bravo uses an unnumbered report).
-const REPORT_ID: u8 = 0;
 
 /// Re-send the current LED state at least this often. Recovers from silent
 /// hardware resets (USB unplug/replug, sleep/wake) where the panel goes dark
@@ -161,6 +156,7 @@ const FORCE_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 
 /// LED panel state mirror.
 pub struct BravoDevice {
+    model: DeviceModel,
     connection: HidConnection,
     /// Desired state, kept in sync with X-Plane datarefs.
     banks: [u8; BANK_COUNT],
@@ -173,9 +169,10 @@ pub struct BravoDevice {
 }
 
 impl BravoDevice {
-    fn new(leds_enabled: bool) -> Self {
+    fn new(leds_enabled: bool, model: DeviceModel) -> Self {
         BravoDevice {
-            connection: HidConnection::new(),
+            model,
+            connection: HidConnection::new(model),
             banks: [0; BANK_COUNT],
             last_sent: None,
             next_force_refresh: Instant::now() + FORCE_REFRESH_INTERVAL,
@@ -231,12 +228,12 @@ impl BravoDevice {
             return;
         }
 
-        // Banks live at the start of the payload; the rest stays zero. IOKit
-        // handles the report-ID byte separately, do NOT prepend it here.
-        let mut report = [0u8; REPORT_LEN];
-        report[..BANK_COUNT].copy_from_slice(&self.banks);
+        let report = self.model.encode(self.banks);
 
-        if self.connection.send_feature_report(REPORT_ID, &report) {
+        if self
+            .connection
+            .send_feature_report(self.model.report_id(), &report)
+        {
             self.last_sent = Some(self.banks);
             self.next_force_refresh = now + FORCE_REFRESH_INTERVAL;
         } else {
@@ -255,9 +252,13 @@ static BRAVO_DEVICE: OnceLock<Mutex<BravoDevice>> = OnceLock::new();
 
 /// Initialise the global device once with the configured LED enable flag.
 /// Subsequent calls update the flag in place.
-pub fn configure(leds_enabled: bool) {
-    let cell = BRAVO_DEVICE.get_or_init(|| Mutex::new(BravoDevice::new(leds_enabled)));
+pub fn configure(leds_enabled: bool, model: DeviceModel) {
+    let cell = BRAVO_DEVICE.get_or_init(|| Mutex::new(BravoDevice::new(leds_enabled, model)));
     if let Ok(mut device) = cell.lock() {
+        if device.model != model {
+            device.set_leds_enabled(false);
+            *device = BravoDevice::new(leds_enabled, model);
+        }
         device.set_leds_enabled(leds_enabled);
     }
 }
@@ -265,5 +266,10 @@ pub fn configure(leds_enabled: bool) {
 /// Global device, lazily initialised with [`LEDS_ENABLED_DEFAULT`] if
 /// [`configure`] was never called.
 pub fn get_device() -> &'static Mutex<BravoDevice> {
-    BRAVO_DEVICE.get_or_init(|| Mutex::new(BravoDevice::new(LEDS_ENABLED_DEFAULT)))
+    BRAVO_DEVICE.get_or_init(|| {
+        Mutex::new(BravoDevice::new(
+            LEDS_ENABLED_DEFAULT,
+            DeviceModel::default(),
+        ))
+    })
 }

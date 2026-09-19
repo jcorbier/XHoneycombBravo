@@ -6,6 +6,7 @@ mod config;
 mod datarefs;
 mod hid;
 mod leds;
+mod protocol;
 
 use commands::OwnedCommand;
 use config::load_config;
@@ -75,7 +76,10 @@ impl Plugin for HoneycombBravoPlugin {
             env!("CARGO_PKG_RUST_VERSION"),
         );
 
-        let config = load_config();
+        let config = load_config().map_err(|e| {
+            xdebug!("Configuration rejected; file left unchanged: {}", e);
+            PluginError(format!("Could not load configuration: {}", e))
+        })?;
 
         DATAREFS
             .set(DataRefs::new(&config))
@@ -83,7 +87,13 @@ impl Plugin for HoneycombBravoPlugin {
 
         let commands = commands::register_commands(&config);
 
-        hid::configure(config.system.leds_enabled);
+        hid::configure(config.system.leds_enabled, config.system.device_model);
+        xdebug!(
+            "Device model: {} [VID:0x294B PID:0x{:04X}] report_id=0x{:02X}",
+            config.system.device_model.name(),
+            config.system.device_model.product_id(),
+            config.system.device_model.report_id()
+        );
         if config.system.leds_enabled {
             xdebug!("LED HID enabled (IOKit ephemeral open per update)");
         } else {

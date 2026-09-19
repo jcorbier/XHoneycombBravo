@@ -8,7 +8,7 @@
 //! feature report and closes. The `IOHIDManager` is kept around for cheap
 //! re-enumeration. See [`matching_dict`] for the device-identity match.
 
-use crate::xdebug;
+use crate::{protocol::DeviceModel, xdebug};
 use core_foundation::base::{CFRelease, CFRetain, CFType, CFTypeRef, TCFType};
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::number::CFNumber;
@@ -20,7 +20,6 @@ use std::time::{Duration, Instant};
 
 // Honeycomb Bravo Throttle Quadrant.
 const VENDOR_ID: i32 = 0x294B;
-const PRODUCT_ID: i32 = 0x1901;
 
 // HID top-level collection: Generic Desktop / Joystick.
 // See <IOKit/hid/IOHIDUsageTables.h>.
@@ -62,6 +61,7 @@ unsafe extern "C" {
 }
 
 pub struct HidConnection {
+    model: DeviceModel,
     manager: Option<IOHIDManagerRef>,
     consecutive_failures: u32,
     backoff_until: Option<Instant>,
@@ -78,8 +78,9 @@ unsafe impl Send for HidConnection {}
 unsafe impl Sync for HidConnection {}
 
 impl HidConnection {
-    pub fn new() -> Self {
+    pub fn new(model: DeviceModel) -> Self {
         HidConnection {
+            model,
             manager: None,
             consecutive_failures: 0,
             backoff_until: None,
@@ -88,9 +89,8 @@ impl HidConnection {
         }
     }
 
-    /// Send a single feature report. `payload` is the report data only — no
-    /// leading report-ID byte (IOKit takes the ID as a separate argument,
-    /// unlike hidapi). Returns `true` on success.
+    /// Send the model-specific IOKit buffer: payload-only for unnumbered Bravo
+    /// reports, including the report-ID byte for numbered Bravo Lite reports.
     pub fn send_feature_report(&mut self, report_id: u8, payload: &[u8]) -> bool {
         if self.in_backoff() {
             return false;
@@ -101,15 +101,16 @@ impl HidConnection {
             return false;
         };
 
-        let ok = unsafe {
+        let result = unsafe {
             IOHIDDeviceSetReport(
                 device,
                 K_IO_HID_REPORT_TYPE_FEATURE,
                 report_id as CFIndex,
                 payload.as_ptr(),
                 payload.len() as CFIndex,
-            ) == KERN_SUCCESS
+            )
         };
+        let ok = result == KERN_SUCCESS;
 
         release_device(device);
 
@@ -121,7 +122,12 @@ impl HidConnection {
             self.consecutive_failures = 0;
             self.backoff_until = None;
         } else {
-            xdebug!("IOHIDDeviceSetReport failed");
+            xdebug!(
+                "IOHIDDeviceSetReport failed: model={} report=0x{:02X} IOReturn=0x{:08X}",
+                self.model.name(),
+                report_id,
+                result as u32
+            );
             self.record_failure();
         }
         ok
@@ -159,7 +165,15 @@ impl HidConnection {
             let set = CFSet::wrap_under_create_rule(device_set.cast());
 
             for device in devices_in_set(&set) {
-                if IOHIDDeviceOpen(device, K_IO_HID_OPTIONS_TYPE_NONE) != KERN_SUCCESS {
+                let result = IOHIDDeviceOpen(device, K_IO_HID_OPTIONS_TYPE_NONE);
+                if result != KERN_SUCCESS {
+                    if !self.backoff_logged {
+                        xdebug!(
+                            "IOHIDDeviceOpen failed: model={} IOReturn=0x{:08X}",
+                            self.model.name(),
+                            result as u32
+                        );
+                    }
                     continue;
                 }
                 self.note_device_acquired(device);
@@ -188,7 +202,7 @@ impl HidConnection {
             serial,
             location,
             VENDOR_ID,
-            PRODUCT_ID
+            self.model.product_id()
         );
         self.had_device = true;
     }
@@ -198,7 +212,10 @@ impl HidConnection {
         if !self.had_device {
             return;
         }
-        xdebug!("HID lost: no matching Bravo on the bus (was previously acquired)");
+        xdebug!(
+            "HID lost: no matching {} on the bus (was previously acquired)",
+            self.model.name()
+        );
         self.had_device = false;
     }
 
@@ -214,7 +231,7 @@ impl HidConnection {
                 return None;
             }
 
-            let matching = matching_dict();
+            let matching = matching_dict(self.model);
             // Apple's API returns void; matching failures surface as an empty device set.
             IOHIDManagerSetDeviceMatching(manager, matching.as_concrete_TypeRef().cast());
 
@@ -254,10 +271,10 @@ fn release_device(device: IOHIDDeviceRef) {
 /// (`0x294B:0x1900`) or any other HID collection on the same bus:
 ///
 ///   * `VendorID`        = `0x294B` (Honeycomb)
-///   * `ProductID`       = `0x1901` (Bravo)
+///   * `ProductID`       = `0x1901` (Bravo) or `0x1909` (Bravo Lite)
 ///   * `DeviceUsagePage` = `0x01`   (Generic Desktop)
 ///   * `DeviceUsage`     = `0x04`   (Joystick)
-fn matching_dict() -> CFDictionary<CFString, CFNumber> {
+fn matching_dict(model: DeviceModel) -> CFDictionary<CFString, CFNumber> {
     CFDictionary::from_CFType_pairs(&[
         (
             CFString::from_static_string("VendorID"),
@@ -265,7 +282,7 @@ fn matching_dict() -> CFDictionary<CFString, CFNumber> {
         ),
         (
             CFString::from_static_string("ProductID"),
-            CFNumber::from(PRODUCT_ID),
+            CFNumber::from(model.product_id()),
         ),
         (
             CFString::from_static_string("DeviceUsagePage"),
