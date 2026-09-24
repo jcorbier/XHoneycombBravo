@@ -173,4 +173,5 @@ GPL-3.0. See [LICENSE](LICENSE).
 - macOS FlyWithLua port: HoneycombBravoMacHelper by Joe Milligan.
 - Rust port: Jeremie Corbier.
 - Trim wheel support: [Jonas Lalin](https://github.com/jonaslalin/), based on the [HoneycombBravoTrimHelper](https://gist.github.com/Spo1ler/fa89eec64fdae462adf7a0a53c19987b) FlyWithLua script by Egor Shkorov.
+- Bravo Lite support: [Andrew Stanley-Jones](https://github.com/as-j).
 - Bravo Lite report format: [bergsm/bravo_driver](https://github.com/bergsm/bravo_driver).
