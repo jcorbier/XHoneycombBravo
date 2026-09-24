@@ -1,11 +1,12 @@
 // Copyright (c) 2025 Jeremie Corbier
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::xdebug;
+use crate::{protocol::DeviceModel, xdebug};
 use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
 use std::fs;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 /// Plugin configuration: LED dataref mappings, system datarefs, and trim wheel
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +70,10 @@ pub struct AnnunciatorsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemConfig {
+    /// Select the exact Honeycomb USB device. Existing configurations default
+    /// to the original Bravo for backward compatibility.
+    #[serde(default)]
+    pub device_model: DeviceModel,
     /// When false, the plugin does not open the Bravo over HID at all.
     #[serde(default = "default_leds_enabled")]
     pub leds_enabled: bool,
@@ -174,6 +179,7 @@ fn default_annunciators() -> AnnunciatorsConfig {
 
 fn default_system() -> SystemConfig {
     SystemConfig {
+        device_model: DeviceModel::default(),
         leds_enabled: default_leds_enabled(),
         bus_voltage: "sim/cockpit2/electrical/bus_volts".to_string(),
         parking_brake: "sim/cockpit2/controls/parking_brake_ratio".to_string(),
@@ -199,36 +205,115 @@ fn get_preferences_path() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Load `XHoneycombBravo.cfg`, falling back to defaults (and writing them) on
-/// first run.
-pub fn load_config() -> PluginConfig {
+/// Load `XHoneycombBravo.cfg`, writing defaults only when the file is absent.
+/// Invalid existing files are left untouched and stop plugin startup.
+pub fn load_config() -> io::Result<PluginConfig> {
     let Some(mut config_path) = get_preferences_path() else {
         xdebug!("No X-Plane preferences directory; using default config");
-        return PluginConfig::default();
+        return Ok(PluginConfig::default());
     };
     config_path.push("XHoneycombBravo.cfg");
     xdebug!("Config path: {:?}", config_path);
 
-    if config_path.exists() {
-        match fs::read_to_string(&config_path).and_then(|s| {
-            toml::from_str::<PluginConfig>(&s)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-        }) {
-            Ok(config) => {
-                xdebug!("Loaded configuration from {:?}", config_path);
-                return config;
-            }
-            Err(e) => xdebug!("Could not load {:?}: {}. Using defaults.", config_path, e),
+    let existed = config_path.exists();
+    let config = load_config_at(&config_path)?;
+    if existed {
+        xdebug!("Loaded configuration from {:?}", config_path);
+    } else {
+        xdebug!("Created default configuration at {:?}", config_path);
+    }
+    Ok(config)
+}
+
+fn load_config_at(path: &Path) -> io::Result<PluginConfig> {
+    match fs::read_to_string(path) {
+        Ok(text) => {
+            toml::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let config = PluginConfig::default();
+            let text = toml::to_string_pretty(&config).map_err(io::Error::other)?;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?
+                .write_all(text.as_bytes())?;
+            Ok(config)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "xhoneycomb-config-test-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn config(&self) -> PathBuf {
+            self.0.join("XHoneycombBravo.cfg")
         }
     }
 
-    let default_config = PluginConfig::default();
-    match toml::to_string_pretty(&default_config) {
-        Ok(toml_string) => match fs::write(&config_path, toml_string) {
-            Ok(()) => xdebug!("Created default configuration at {:?}", config_path),
-            Err(e) => xdebug!("Could not write default config: {}", e),
-        },
-        Err(e) => xdebug!("Could not serialize default config: {}", e),
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
-    default_config
+
+    #[test]
+    fn missing_file_gets_original_bravo_defaults() {
+        let dir = Scratch::new();
+        let config = load_config_at(&dir.config()).unwrap();
+        assert_eq!(config.system.device_model, DeviceModel::Bravo);
+        assert!(dir.config().is_file());
+    }
+
+    #[test]
+    fn legacy_config_defaults_to_original_without_rewriting() {
+        let dir = Scratch::new();
+        let text = toml::to_string_pretty(&PluginConfig::default())
+            .unwrap()
+            .replace("device_model = \"bravo\"\n", "");
+        fs::write(dir.config(), &text).unwrap();
+        let config = load_config_at(&dir.config()).unwrap();
+        assert_eq!(config.system.device_model, DeviceModel::Bravo);
+        assert_eq!(fs::read_to_string(dir.config()).unwrap(), text);
+    }
+
+    #[test]
+    fn lite_config_loads_without_rewriting() {
+        let dir = Scratch::new();
+        let mut config = PluginConfig::default();
+        config.system.device_model = DeviceModel::BravoLite;
+        let text = toml::to_string_pretty(&config).unwrap();
+        fs::write(dir.config(), &text).unwrap();
+        let loaded = load_config_at(&dir.config()).unwrap();
+        assert_eq!(loaded.system.device_model, DeviceModel::BravoLite);
+        assert_eq!(fs::read_to_string(dir.config()).unwrap(), text);
+    }
+
+    #[test]
+    fn invalid_model_is_rejected_without_rewriting() {
+        let dir = Scratch::new();
+        let text = toml::to_string_pretty(&PluginConfig::default())
+            .unwrap()
+            .replace("device_model = \"bravo\"", "device_model = \"alpha\"");
+        fs::write(dir.config(), &text).unwrap();
+        assert!(load_config_at(&dir.config()).is_err());
+        assert_eq!(fs::read_to_string(dir.config()).unwrap(), text);
+    }
 }
