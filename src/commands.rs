@@ -7,6 +7,7 @@ use crate::config::PluginConfig;
 use crate::xdebug;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_int, c_void};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
 use xplm_sys::{
     XPLMCommandCallback_f, XPLMCommandPhase, XPLMCommandRef, XPLMCreateCommand, XPLMDataRef,
@@ -25,15 +26,31 @@ const MAX_ENGINES: usize = 8;
 /// Which value the rotary encoder is currently controlling. Matches the IAS /
 /// CRS / HDG / VS / ALT mode buttons on the Bravo, plus two COM1 tuning modes
 /// for use without a physical radio panel.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum AutopilotMode {
-    Ias,
-    Crs,
-    Hdg,
-    Vs,
-    Alt,
-    Com1Coarse,
-    Com1Fine,
+    Ias = 0,
+    Crs = 1,
+    Hdg = 2,
+    Vs = 3,
+    Alt = 4,
+    Com1Coarse = 5,
+    Com1Fine = 6,
+}
+
+impl AutopilotMode {
+    fn from_u8(val: u8) -> Self {
+        match val {
+            0 => AutopilotMode::Ias,
+            1 => AutopilotMode::Crs,
+            2 => AutopilotMode::Hdg,
+            3 => AutopilotMode::Vs,
+            4 => AutopilotMode::Alt,
+            5 => AutopilotMode::Com1Coarse,
+            6 => AutopilotMode::Com1Fine,
+            _ => AutopilotMode::Ias,
+        }
+    }
 }
 
 /// Single source of truth for `mode_*` commands: rotary mode, command-name
@@ -50,8 +67,7 @@ const MODES: &[(AutopilotMode, &str, &str)] = &[
     (AutopilotMode::Com1Fine,   "mode_com1_fine",   "Set autopilot rotary encoder mode to COM1 fine."),
 ];
 
-static CURRENT_MODE: LazyLock<Mutex<AutopilotMode>> =
-    LazyLock::new(|| Mutex::new(AutopilotMode::Ias));
+static CURRENT_MODE: AtomicU8 = AtomicU8::new(AutopilotMode::Ias as u8);
 
 /// Writable datarefs for command system (using raw XPLMDataRef pointers).
 pub struct CommandDataRefs {
@@ -105,11 +121,11 @@ fn find_dataref(name: &CStr) -> XPLMDataRef {
 }
 
 pub fn get_current_mode() -> AutopilotMode {
-    *CURRENT_MODE.lock().unwrap()
+    AutopilotMode::from_u8(CURRENT_MODE.load(Ordering::Relaxed))
 }
 
 pub fn set_current_mode(mode: AutopilotMode) {
-    *CURRENT_MODE.lock().unwrap() = mode;
+    CURRENT_MODE.store(mode as u8, Ordering::Relaxed);
     xdebug!("Rotary mode -> {:?}", mode);
 }
 
@@ -120,7 +136,7 @@ pub fn change_value(increase: bool) {
     let dir = if increase { "+" } else { "-" };
     xdebug!("Rotary turn: dir={dir} mode={mode:?}");
 
-    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap();
+    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner());
     let Some(datarefs) = datarefs_guard.as_ref() else {
         return;
     };
@@ -199,7 +215,7 @@ unsafe fn fire_sdk_command(name: &CStr) {
 pub fn set_reverser_state(engine: Option<usize>, state: bool) {
     let prop_mode = if state { 3.0 } else { 1.0 };
 
-    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap();
+    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner());
     let Some(datarefs) = datarefs_guard.as_ref() else {
         return;
     };
@@ -232,7 +248,7 @@ pub fn set_reverser_state(engine: Option<usize>, state: bool) {
 
 /// Apply trim wheel delta in the given direction (+1.0 = nose up, -1.0 = nose down).
 fn apply_trim(direction: f32) {
-    let state_guard = TRIM_STATE.lock().unwrap();
+    let state_guard = TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(state) = state_guard.as_ref() else {
         return;
     };
@@ -350,7 +366,7 @@ impl Drop for OwnedCommand {
 /// handler, so the caller must keep it alive for the plugin's lifetime.
 #[must_use]
 pub fn register_commands(config: &PluginConfig) -> Vec<OwnedCommand> {
-    *COMMAND_DATAREFS.lock().unwrap() = Some(CommandDataRefs::new());
+    *COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner()) = Some(CommandDataRefs::new());
 
     let mut commands = Vec::new();
 
@@ -413,7 +429,13 @@ fn register_trim_commands(config: &PluginConfig, commands: &mut Vec<OwnedCommand
         return;
     }
 
-    let trim_dataref_name = CString::new(trim.elevator_trim_dataref.as_str()).unwrap();
+    let Ok(trim_dataref_name) = CString::new(trim.elevator_trim_dataref.as_str()) else {
+        xdebug!(
+            "Invalid trim dataref name '{}' (contains interior NUL); trim wheel commands not registered",
+            trim.elevator_trim_dataref
+        );
+        return;
+    };
     let trim_dataref = unsafe { XPLMFindDataRef(trim_dataref_name.as_ptr()) };
     if trim_dataref.is_null() {
         // Skip registration entirely; no-op commands would only hide the
@@ -426,7 +448,7 @@ fn register_trim_commands(config: &PluginConfig, commands: &mut Vec<OwnedCommand
     }
 
     let trim_delta = (trim.max_trim - trim.min_trim) / trim.detents_per_rotation / trim.full_turns;
-    *TRIM_STATE.lock().unwrap() = Some(TrimState {
+    *TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrimState {
         trim_dataref,
         trim_delta,
         min_trim: trim.min_trim,
@@ -457,6 +479,58 @@ fn register_trim_commands(config: &PluginConfig, commands: &mut Vec<OwnedCommand
 /// Clear the static state populated by [`register_commands`], so a reload
 /// cycle that keeps the dylib mapped doesn't leak stale pointers.
 pub fn clear_command_state() {
-    *COMMAND_DATAREFS.lock().unwrap() = None;
-    *TRIM_STATE.lock().unwrap() = None;
+    *COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_autopilot_mode_from_u8_roundtrip() {
+        let modes = [
+            (0, AutopilotMode::Ias),
+            (1, AutopilotMode::Crs),
+            (2, AutopilotMode::Hdg),
+            (3, AutopilotMode::Vs),
+            (4, AutopilotMode::Alt),
+            (5, AutopilotMode::Com1Coarse),
+            (6, AutopilotMode::Com1Fine),
+        ];
+
+        for (val, expected_mode) in modes {
+            assert_eq!(AutopilotMode::from_u8(val), expected_mode);
+            assert_eq!(expected_mode as u8, val);
+        }
+
+        // Out-of-range fallback
+        assert_eq!(AutopilotMode::from_u8(99), AutopilotMode::Ias);
+    }
+
+    #[test]
+    fn test_get_set_current_mode() {
+        set_current_mode(AutopilotMode::Hdg);
+        assert_eq!(get_current_mode(), AutopilotMode::Hdg);
+
+        set_current_mode(AutopilotMode::Com1Fine);
+        assert_eq!(get_current_mode(), AutopilotMode::Com1Fine);
+
+        // Reset back to IAS
+        set_current_mode(AutopilotMode::Ias);
+        assert_eq!(get_current_mode(), AutopilotMode::Ias);
+    }
+
+    #[test]
+    fn test_poisoned_mutex_recovery() {
+        let m = Mutex::new(42);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = m.lock().unwrap();
+            panic!("poisoning mutex");
+        });
+
+        assert!(m.is_poisoned());
+        let val = m.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(*val, 42);
+    }
 }
