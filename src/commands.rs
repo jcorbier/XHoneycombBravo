@@ -7,6 +7,7 @@ use crate::config::PluginConfig;
 use crate::xdebug;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_int, c_void};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
 use xplm_sys::{
     XPLMCommandCallback_f, XPLMCommandPhase, XPLMCommandRef, XPLMCreateCommand, XPLMDataRef,
@@ -25,15 +26,31 @@ const MAX_ENGINES: usize = 8;
 /// Which value the rotary encoder is currently controlling. Matches the IAS /
 /// CRS / HDG / VS / ALT mode buttons on the Bravo, plus two COM1 tuning modes
 /// for use without a physical radio panel.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum AutopilotMode {
-    Ias,
-    Crs,
-    Hdg,
-    Vs,
-    Alt,
-    Com1Coarse,
-    Com1Fine,
+    Ias = 0,
+    Crs = 1,
+    Hdg = 2,
+    Vs = 3,
+    Alt = 4,
+    Com1Coarse = 5,
+    Com1Fine = 6,
+}
+
+impl AutopilotMode {
+    const fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::Ias,
+            1 => Self::Crs,
+            2 => Self::Hdg,
+            3 => Self::Vs,
+            4 => Self::Alt,
+            5 => Self::Com1Coarse,
+            6 => Self::Com1Fine,
+            _ => Self::Ias,
+        }
+    }
 }
 
 /// Single source of truth for `mode_*` commands: rotary mode, command-name
@@ -50,8 +67,7 @@ const MODES: &[(AutopilotMode, &str, &str)] = &[
     (AutopilotMode::Com1Fine,   "mode_com1_fine",   "Set autopilot rotary encoder mode to COM1 fine."),
 ];
 
-static CURRENT_MODE: LazyLock<Mutex<AutopilotMode>> =
-    LazyLock::new(|| Mutex::new(AutopilotMode::Ias));
+static CURRENT_MODE: AtomicU8 = AtomicU8::new(AutopilotMode::Ias as u8);
 
 /// Writable datarefs for command system (using raw XPLMDataRef pointers).
 pub struct CommandDataRefs {
@@ -105,11 +121,11 @@ fn find_dataref(name: &CStr) -> XPLMDataRef {
 }
 
 pub fn get_current_mode() -> AutopilotMode {
-    *CURRENT_MODE.lock().unwrap()
+    AutopilotMode::from_u8(CURRENT_MODE.load(Ordering::Relaxed))
 }
 
 pub fn set_current_mode(mode: AutopilotMode) {
-    *CURRENT_MODE.lock().unwrap() = mode;
+    CURRENT_MODE.store(mode as u8, Ordering::Relaxed);
     xdebug!("Rotary mode -> {:?}", mode);
 }
 
@@ -120,7 +136,7 @@ pub fn change_value(increase: bool) {
     let dir = if increase { "+" } else { "-" };
     xdebug!("Rotary turn: dir={dir} mode={mode:?}");
 
-    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap();
+    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner());
     let Some(datarefs) = datarefs_guard.as_ref() else {
         return;
     };
@@ -199,7 +215,7 @@ unsafe fn fire_sdk_command(name: &CStr) {
 pub fn set_reverser_state(engine: Option<usize>, state: bool) {
     let prop_mode = if state { 3.0 } else { 1.0 };
 
-    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap();
+    let datarefs_guard = COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner());
     let Some(datarefs) = datarefs_guard.as_ref() else {
         return;
     };
@@ -232,7 +248,7 @@ pub fn set_reverser_state(engine: Option<usize>, state: bool) {
 
 /// Apply trim wheel delta in the given direction (+1.0 = nose up, -1.0 = nose down).
 fn apply_trim(direction: f32) {
-    let state_guard = TRIM_STATE.lock().unwrap();
+    let state_guard = TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(state) = state_guard.as_ref() else {
         return;
     };
@@ -350,7 +366,7 @@ impl Drop for OwnedCommand {
 /// handler, so the caller must keep it alive for the plugin's lifetime.
 #[must_use]
 pub fn register_commands(config: &PluginConfig) -> Vec<OwnedCommand> {
-    *COMMAND_DATAREFS.lock().unwrap() = Some(CommandDataRefs::new());
+    *COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner()) = Some(CommandDataRefs::new());
 
     let mut commands = Vec::new();
 
@@ -426,7 +442,7 @@ fn register_trim_commands(config: &PluginConfig, commands: &mut Vec<OwnedCommand
     }
 
     let trim_delta = (trim.max_trim - trim.min_trim) / trim.detents_per_rotation / trim.full_turns;
-    *TRIM_STATE.lock().unwrap() = Some(TrimState {
+    *TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrimState {
         trim_dataref,
         trim_delta,
         min_trim: trim.min_trim,
@@ -457,6 +473,6 @@ fn register_trim_commands(config: &PluginConfig, commands: &mut Vec<OwnedCommand
 /// Clear the static state populated by [`register_commands`], so a reload
 /// cycle that keeps the dylib mapped doesn't leak stale pointers.
 pub fn clear_command_state() {
-    *COMMAND_DATAREFS.lock().unwrap() = None;
-    *TRIM_STATE.lock().unwrap() = None;
+    *COMMAND_DATAREFS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *TRIM_STATE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
